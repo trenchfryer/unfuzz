@@ -122,6 +122,19 @@ async def upload_image(file: UploadFile = File(...)):
         )
 
         logger.info(f"Image uploaded successfully: {image_id}")
+        logger.info(f"  📸 Full file path: {file_path}")
+        logger.info(f"  🖼️  Thumbnail path: {thumbnail_path}")
+        logger.info(f"  🌐 URL returned: {response.url}")
+        logger.info(f"  🌐 Thumbnail URL returned: {response.thumbnail_url}")
+
+        # Test serialize the response to catch any JSON errors early
+        try:
+            response_dict = response.model_dump()
+            logger.info(f"  ✅ Response validated successfully")
+        except Exception as e:
+            logger.error(f"  ❌ Response validation failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Response validation error: {str(e)}")
+
         return response
 
     except HTTPException:

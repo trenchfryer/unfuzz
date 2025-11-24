@@ -128,7 +128,7 @@ export default function ImageDetailModal({ image, onClose, onToggleSelection }: 
           {/* Image Preview */}
           <div>
             <img
-              src={image.url}
+              src={image.file_path}
               alt={image.filename}
               className="w-full rounded-lg shadow-lg"
             />
@@ -163,10 +163,11 @@ export default function ImageDetailModal({ image, onClose, onToggleSelection }: 
             )}
 
             {/* EXIF Data */}
-            <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-              <h3 className="font-semibold mb-2">Camera Settings</h3>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                {metadata.camera_make && (
+            {metadata && (
+              <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                <h3 className="font-semibold mb-2">Camera Settings</h3>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  {metadata.camera_make && (
                   <div>
                     <span className="text-gray-600">Camera:</span>{' '}
                     <span className="font-medium">
@@ -205,7 +206,8 @@ export default function ImageDetailModal({ image, onClose, onToggleSelection }: 
                   </div>
                 )}
               </div>
-            </div>
+              </div>
+            )}
 
             {/* Selection Button */}
             <button

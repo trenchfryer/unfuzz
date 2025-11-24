@@ -12,13 +12,14 @@ sqlalchemy==2.0.25
 
 # AI & Image Processing
 openai==1.10.0
+google-generativeai==0.3.2
 Pillow==10.2.0
 imagehash==4.3.1
 numpy==1.26.3
 
 # Utilities
 aiofiles==23.2.1
-httpx==0.26.0
+httpx==0.24.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 tenacity==8.2.3

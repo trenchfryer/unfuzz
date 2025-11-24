@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import List, Optional
 from app.models.image import ImageAnalysisResponse
 from app.services.openai_vision import OpenAIVisionService
+from app.services.gemini_vision import GeminiVisionService
 from app.services.duplicate_detector import DuplicateDetector
 from app.utils.image_processing import ImageProcessor
 from app.core.config import settings
@@ -12,15 +13,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Initialize services
-vision_service = OpenAIVisionService()
+# Initialize services based on configuration
+if settings.VISION_PROVIDER == "gemini":
+    vision_service = GeminiVisionService()
+    logger.info("Using Google Gemini for image analysis")
+else:
+    vision_service = OpenAIVisionService()
+    logger.info("Using OpenAI GPT for image analysis")
+
 duplicate_detector = DuplicateDetector()
 
 
 @router.post("/analyze/{image_id}")
 async def analyze_single_image(image_id: str):
     """
-    Analyze a single image using OpenAI Vision API.
+    Analyze a single image using AI Vision API (OpenAI or Gemini).
 
     Returns complete analysis with all 30+ factor scores.
     """
@@ -57,9 +64,26 @@ async def analyze_single_image(image_id: str):
         # In production, save analysis results to database
         logger.info(f"Analysis completed for {image_id}: Score {analysis_result.overall_score}")
 
+        # Format EXIF metadata for frontend display
+        metadata = None
+        if exif_data:
+            metadata = {
+                "camera_make": exif_data.get("Make"),
+                "camera_model": exif_data.get("Model"),
+                "lens_model": exif_data.get("LensModel"),
+                "focal_length": exif_data.get("FocalLength"),
+                "aperture": exif_data.get("FNumber"),
+                "shutter_speed": exif_data.get("ExposureTime"),
+                "iso": exif_data.get("ISOSpeedRatings") or exif_data.get("ISO"),
+                "white_balance": exif_data.get("WhiteBalance"),
+                "flash": exif_data.get("Flash"),
+                "date_taken": exif_data.get("DateTime") or exif_data.get("DateTimeOriginal"),
+            }
+
         return {
             "image_id": image_id,
             "analysis": analysis_result.dict(),
+            "metadata": metadata,
             "dhash": dhash,
             "phash": phash,
             "status": "completed"

@@ -1,20 +1,22 @@
-# UnFuzz - AI-Powered Image Culling PWA
+# UnFuzz - AI-Powered Image Culling & Enhancement
 
 ![UnFuzz Logo](./docs/logo.png)
 
 **Focus on Photography, Not Sorting**
 
-UnFuzz is a Progressive Web App that leverages OpenAI's Vision API to provide professional photographers with intelligent, automated image culling. Save 80% of your time by analyzing 30+ quality factors in minutes.
+UnFuzz is a cutting-edge Progressive Web App that leverages Google's Gemini Vision AI to provide professional photographers with intelligent, automated image culling and enhancement. Save 80% of your time by analyzing 30+ quality factors and getting AI-powered enhancement recommendations in minutes.
 
 ## 🌟 Features
 
-- **AI-Powered Analysis**: Advanced AI evaluates sharpness, exposure, composition, facial expressions, and 30+ other factors
-- **Duplicate Detection**: Automatically groups duplicates and burst sequences, selecting the best shot
-- **Lightning Fast**: Process 400-800 images in minutes
+- **AI-Powered Analysis**: Google Gemini Vision AI evaluates sharpness, exposure, composition, facial expressions, and 30+ other factors
+- **Smart Enhancement**: AI-powered post-processing recommendations with before/after preview
+- **EXIF Metadata Display**: View camera settings (ISO, aperture, shutter speed, focal length, lens info)
+- **Duplicate Detection**: Automatically groups duplicates and burst sequences using perceptual hashing
+- **Lightning Fast**: Process hundreds of images in minutes with async processing
+- **Real-time Progress**: Live upload and analysis progress tracking
 - **Smart Selection**: Auto-select top images based on AI scores and quality tiers
-- **Multi-Destination Export**: Export to Google Drive, local storage, or cloud
-- **PWA Support**: Install on any device, works offline
-- **RAW Format Support**: Handles CR2, NEF, ARW, DNG, and standard formats
+- **PWA Support**: Modern web app that works on any device
+- **RAW Format Support**: Handles CR2, NEF, ARW, DNG, HEIC, and standard formats
 
 ## 📋 The 30+ Quality Factors
 
@@ -24,32 +26,57 @@ UnFuzz is a Progressive Web App that leverages OpenAI's Vision API to provide pr
 3. **Color Accuracy**: White balance, color cast, natural saturation
 4. **Noise/Grain**: ISO noise levels and digital artifacts
 5. **Dynamic Range**: Tonal range utilization
+6-12. Contrast, clarity, chromatic aberration, vignetting, distortion, resolution, sensor dust
 
 ### Composition (8 factors)
-6. **Rule of Thirds**: Subject placement on power points
-7. **Subject Placement**: Main subject positioning
-8. **Framing**: Edge management and aspect ratio
-9-13. Leading lines, balance, depth, negative space, perspective
+13. **Rule of Thirds**: Subject placement on power points
+14. **Subject Placement**: Main subject positioning
+15. **Framing**: Edge management and aspect ratio
+16-20. Leading lines, balance, depth, negative space, perspective
 
 ### Subject Quality (10 factors)
-14. **Facial Detection**: Face visibility and clarity
-15. **Eye Status**: Open/closed eyes detection (critical factor)
-16-23. Facial expression, body language, attention, group dynamics, motion blur, lighting, skin tones, framing
+21. **Facial Detection**: Face visibility and clarity
+22. **Eye Status**: Open/closed eyes detection (critical rejection factor)
+23-30. Facial expression, body language, attention, group dynamics, motion blur, lighting, skin tones, framing
 
-### Artistic Quality (5 factors)
-24-28. Lighting quality, color harmony, emotional impact, uniqueness, professional polish
+### Artistic Quality (4 factors)
+31-34. Lighting quality, color harmony, emotional impact, uniqueness, professional polish
 
-### Technical Defects & Duplicates
-29-33. Critical defects detection, duplicate identification, EXIF validation, sequence analysis
+## 🏗️ Tech Stack
+
+### Frontend
+- **Next.js 16.0.3** with Turbopack (next-gen bundler)
+- **React 18** with modern Hooks
+- **TypeScript** for type safety
+- **Tailwind CSS** for styling
+- **@headlessui/react** for accessible UI components
+- **@heroicons/react** for icons
+- **react-dropzone** for drag & drop uploads
+- **Axios** for HTTP requests
+
+### Backend
+- **FastAPI** - Modern Python web framework
+- **Uvicorn** with auto-reload
+- **Google Gemini Vision API** (gemini-1.5-flash)
+- **Pillow (PIL)** for image processing
+- **Pydantic** for data validation
+- **aiofiles** for async file I/O
+
+### Processing
+- **Image Enhancement**: Exposure, contrast, saturation, sharpness adjustments
+- **Perceptual Hashing**: dhash & phash for duplicate detection
+- **EXIF Extraction**: Camera metadata parsing
+- **Thumbnail Generation**: Fast preview loading
+- **Batch Processing**: Parallel image analysis
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Node.js 18+ and npm
-- Python 3.11+
-- OpenAI API key
-- Supabase account (optional, for production)
+- **Node.js 18+** and npm
+- **Python 3.9+**
+- **Micromamba** or conda (recommended)
+- **Google Gemini API key** ([Get one here](https://makersuite.google.com/app/apikey))
 
 ### Installation
 
@@ -59,32 +86,45 @@ git clone https://github.com/yourusername/unfuzz.git
 cd unfuzz
 ```
 
-2. **Set up environment variables**
+2. **Set up Python environment**
 ```bash
-cp .env.example .env
+# Using micromamba (recommended)
+micromamba create -n unfuzz python=3.9
+micromamba activate unfuzz
+
+# Or using conda
+conda create -n unfuzz python=3.9
+conda activate unfuzz
 ```
 
-Edit `.env` with your credentials:
-- `OPENAI_API_KEY`: Your OpenAI API key
-- `DATABASE_URL`: Your Supabase PostgreSQL connection string
-- Other configuration as needed
-
-3. **Install frontend dependencies**
-```bash
-cd frontend
-npm install
-```
-
-4. **Install backend dependencies**
+3. **Install backend dependencies**
 ```bash
 cd backend
 pip install -r requirements.txt
 ```
 
-5. **Set up database** (optional for production)
+4. **Install frontend dependencies**
 ```bash
-# Run the SQL schema in your Supabase SQL editor
-cat database/schema.sql
+cd ../frontend
+npm install
+```
+
+5. **Set up environment variables**
+
+Create `backend/.env`:
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-1.5-flash
+VISION_PROVIDER=gemini
+UPLOAD_FOLDER=./uploads
+ALLOWED_EXTENSIONS=[".jpg", ".jpeg", ".png", ".heic", ".cr2", ".nef", ".arw", ".dng"]
+MAX_FILE_SIZE=52428800
+```
+
+Create `frontend/.env.local`:
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_APP_NAME=UnFuzz
 ```
 
 6. **Run the development servers**
@@ -106,160 +146,225 @@ npm run dev
 http://localhost:3000
 ```
 
-## 🏗️ Architecture
+## 🎯 Usage
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     User Browser                         │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │         Next.js PWA (React + Tailwind)          │   │
-│  │  - Drag & Drop Upload                           │   │
-│  │  - Real-time Progress                           │   │
-│  │  - Image Gallery & Review                       │   │
-│  └─────────────────────────────────────────────────┘   │
-└──────────────────────┬──────────────────────────────────┘
-                       │ HTTPS
-┌──────────────────────▼──────────────────────────────────┐
-│              FastAPI Backend Server                      │
-│  - Image Upload Handler                                  │
-│  - OpenAI Vision API integration                         │
-│  - Perceptual hashing (duplicates)                       │
-│  - Export Manager                                        │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-        ┌──────────────┼──────────────┐
-        │              │              │
-┌───────▼──────┐ ┌────▼─────┐ ┌─────▼────────┐
-│   Supabase   │ │  OpenAI  │ │   Storage    │
-│  PostgreSQL  │ │ Vision   │ │  (Local/S3)  │
-└──────────────┘ └──────────┘ └──────────────┘
-```
+1. **Upload Images**: Drag and drop or click to select images (JPG, PNG, RAW formats)
+2. **Automatic Analysis**: AI analyzes each image across 30+ factors
+3. **Review Results**: View scores, detected issues, and recommendations
+4. **View Details**: Click any image to see:
+   - Overall score and quality tier
+   - Individual factor scores
+   - EXIF metadata (camera settings)
+   - AI recommendations
+   - Enhancement preview
+5. **Enhance Images**: Preview and download AI-enhanced versions
+6. **Export**: Select and export your best shots
 
 ## 📁 Project Structure
 
 ```
 unfuzz/
-├── frontend/                 # Next.js frontend
-│   ├── app/                 # App router pages
-│   │   ├── page.tsx         # Landing page
+├── frontend/                      # Next.js frontend
+│   ├── app/                       # App router pages
+│   │   ├── page.tsx              # Landing page
 │   │   └── app/
-│   │       └── page.tsx     # Main culling interface
-│   ├── components/          # React components
+│   │       └── page.tsx          # Main application
+│   ├── components/               # React components
 │   │   ├── ImageGallery.tsx
-│   │   └── ImageDetailModal.tsx
-│   ├── lib/                 # Utilities and API
-│   │   ├── api.ts          # API client
-│   │   └── types.ts        # TypeScript types
-│   └── public/             # Static assets
+│   │   ├── ImageDetailModal.tsx
+│   │   └── EnhancementPreviewModal.tsx
+│   ├── lib/                      # Utilities
+│   │   ├── api.ts               # API client
+│   │   └── types.ts             # TypeScript interfaces
+│   └── public/                   # Static assets
 │
-├── backend/                 # FastAPI backend
+├── backend/                       # FastAPI backend
 │   ├── app/
-│   │   ├── main.py         # FastAPI application
-│   │   ├── api/            # API routes
-│   │   │   ├── images.py
-│   │   │   ├── projects.py
-│   │   │   └── analysis.py
-│   │   ├── services/       # Business logic
-│   │   │   ├── openai_vision.py
+│   │   ├── main.py              # FastAPI app
+│   │   ├── api/                 # API routes
+│   │   │   ├── images.py        # Upload endpoints
+│   │   │   ├── analysis.py      # Analysis endpoints
+│   │   │   ├── enhancement.py   # Enhancement endpoints
+│   │   │   └── projects.py      # Project management
+│   │   ├── services/            # Business logic
+│   │   │   ├── gemini_vision.py # Gemini AI integration
+│   │   │   ├── image_enhancement.py
 │   │   │   └── duplicate_detector.py
-│   │   ├── models/         # Pydantic models
-│   │   ├── core/           # Configuration
-│   │   └── utils/          # Utilities
+│   │   ├── models/              # Pydantic models
+│   │   │   └── image.py
+│   │   ├── core/                # Configuration
+│   │   │   └── config.py
+│   │   └── utils/               # Utilities
+│   │       └── image_processing.py
+│   ├── uploads/                 # Uploaded images
+│   │   └── thumbnails/         # Generated thumbnails
 │   └── requirements.txt
 │
-├── database/
-│   └── schema.sql          # Supabase database schema
-│
-├── PRD.md                  # Product Requirements Document
-├── .env                    # Environment variables
-└── README.md               # This file
+├── PRD.md                        # Product Requirements
+└── README.md                     # This file
 ```
 
 ## 🔧 Configuration
 
-### Environment Variables
+### Backend Environment Variables
 
-**Frontend (.env.local)**
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_APP_NAME=UnFuzz
+# AI Provider
+GEMINI_API_KEY=your_api_key          # Required: Google Gemini API key
+GEMINI_MODEL=gemini-1.5-flash        # Model to use
+VISION_PROVIDER=gemini               # AI provider (gemini or openai)
+
+# Storage
+UPLOAD_FOLDER=./uploads              # Image storage location
+MAX_FILE_SIZE=52428800              # Max file size (50MB)
+
+# Allowed Formats
+ALLOWED_EXTENSIONS=[".jpg", ".jpeg", ".png", ".heic", ".cr2", ".nef", ".arw", ".dng"]
+
+# CORS
+CORS_ORIGINS=["http://localhost:3000"]
 ```
 
-**Backend (.env)**
+### Frontend Environment Variables
+
 ```env
-OPENAI_API_KEY=your_openai_key
-DATABASE_URL=postgresql://...
-SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_API_URL=http://localhost:8000    # Backend API URL
+NEXT_PUBLIC_APP_NAME=UnFuzz                  # App name
 ```
 
-See `.env.example` for complete configuration options.
+## 📊 API Documentation
+
+Once the backend is running, visit:
+- **Swagger UI**: `http://localhost:8000/docs`
+- **ReDoc**: `http://localhost:8000/redoc`
+
+### Key Endpoints
+
+**Images**
+- `POST /api/v1/images/upload` - Upload single image
+- `POST /api/v1/images/upload-batch` - Upload multiple images
+- `GET /api/v1/images/{image_id}` - Get image details
+
+**Analysis**
+- `POST /api/v1/analysis/analyze/{image_id}` - Analyze image with AI
+- `POST /api/v1/analysis/detect-duplicates` - Detect duplicate images
+- `GET /api/v1/analysis/analyze-batch` - Batch analysis
+
+**Enhancement**
+- `GET /api/v1/enhancement/preview/{image_id}` - Get enhancement preview
+- `GET /api/v1/enhancement/enhance/{image_id}` - Download enhanced image
+- `GET /api/v1/enhancement/{image_id}/can-enhance` - Check if enhancement available
+
+**Health**
+- `GET /health` - Health check
+
+## 🎨 Features in Detail
+
+### AI Analysis
+- **30+ Quality Factors**: Comprehensive image evaluation
+- **Quality Tiers**: excellent, good, acceptable, poor, reject
+- **Rejection Criteria**: Automatically flags images with closed eyes, severe blur, etc.
+- **Context-Aware**: Uses EXIF data for intelligent recommendations
+
+### Camera Settings Recommendations
+- **ISO Guidance**: Optimal ISO for lighting conditions
+- **Aperture Advice**: Best f-stop for subject type
+- **Shutter Speed**: Recommended speeds for motion/stillness
+- **Focal Length**: Ideal lens choices
+
+### Post-Processing Recommendations
+- **Exposure Adjustments**: EV compensation values
+- **Contrast Enhancement**: Specific adjustment amounts
+- **Saturation Tuning**: Color intensity recommendations
+- **Sharpening**: Unsharp mask parameters
+- **Auto-fix Eligibility**: Whether automated enhancement will help
+
+### Enhancement Preview
+- **Before/After Comparison**: Side-by-side view
+- **Real-time Preview**: See changes before downloading
+- **Adjustment Details**: View specific values applied
+- **Download Options**: Local download or Google Drive (coming soon)
 
 ## 🚢 Deployment
 
 ### Frontend (Vercel)
-
-1. Push your code to GitHub
-2. Import project in Vercel
-3. Set environment variables
-4. Deploy
 
 ```bash
 cd frontend
 vercel --prod
 ```
 
-### Backend (Railway/Render)
+Set environment variables in Vercel dashboard:
+- `NEXT_PUBLIC_API_URL` - Your backend URL
 
-1. Create new project in Railway or Render
-2. Connect your GitHub repository
-3. Set environment variables
-4. Deploy
+### Backend (Railway/Render/AWS)
 
+**Using Railway:**
 ```bash
-# Railway
 railway up
+```
 
-# Or use Docker
-docker build -t unfuzz-backend ./backend
-docker run -p 8000:8000 unfuzz-backend
+**Using Docker:**
+```bash
+cd backend
+docker build -t unfuzz-backend .
+docker run -p 8000:8000 --env-file .env unfuzz-backend
 ```
 
 ## 🧪 Testing
 
 ```bash
-# Backend tests
-cd backend
-pytest
+# Backend - Test single endpoint
+curl http://localhost:8000/health
 
-# Frontend tests (when implemented)
+# Upload test image
+curl -X POST -F "file=@test.jpg" http://localhost:8000/api/v1/images/upload
+
+# Frontend - Check build
 cd frontend
-npm test
+npm run build
 ```
 
-## 📊 API Documentation
+## 🐛 Troubleshooting
 
-Once the backend is running, visit:
-- Swagger UI: `http://localhost:8000/api/docs`
-- ReDoc: `http://localhost:8000/api/redoc`
+**Port 8000 already in use:**
+```bash
+lsof -ti:8000 | xargs kill
+```
 
-### Key Endpoints
+**Module not found errors:**
+```bash
+cd backend && pip install -r requirements.txt
+cd frontend && npm install
+```
 
-**Projects**
-- `POST /api/v1/projects` - Create new project
-- `GET /api/v1/projects/{id}` - Get project details
+**CORS errors:**
+- Ensure `CORS_ORIGINS` in backend config includes your frontend URL
+- Check `NEXT_PUBLIC_API_URL` in frontend `.env.local`
 
-**Images**
-- `POST /api/v1/images/upload` - Upload single image
-- `POST /api/v1/images/upload-batch` - Upload multiple images
+## 🗺️ Roadmap
 
-**Analysis**
-- `POST /api/v1/analysis/analyze/{image_id}` - Analyze single image
-- `POST /api/v1/analysis/detect-duplicates` - Detect duplicates in project
-- `POST /api/v1/analysis/smart-select/{project_id}` - Auto-select best images
+### Coming Soon
+- [x] AI-powered image analysis
+- [x] Enhancement preview with before/after
+- [x] EXIF metadata display
+- [x] Duplicate detection
+- [ ] Google Drive integration
+- [ ] Batch enhancement
+- [ ] Project management
+- [ ] Export to Lightroom/Capture One
+
+### Future Features
+- [ ] Video frame culling
+- [ ] Custom AI model training
+- [ ] Mobile apps (iOS/Android)
+- [ ] Team collaboration
+- [ ] Advanced filtering and sorting
+- [ ] Cloud storage integration (Dropbox, OneDrive)
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read our contributing guidelines first.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
@@ -273,33 +378,35 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🙏 Acknowledgments
 
-- OpenAI for the Vision API
-- Supabase for database and authentication
-- Vercel for hosting
-- The photography community for feedback
+- **Google Gemini** for the powerful Vision AI API
+- **Vercel** for Next.js and hosting
+- **FastAPI** for the amazing Python web framework
+- The photography community for valuable feedback
 
 ## 📧 Contact
 
-- Website: https://unfuzz.app
+- Website: https://unfuzz.app (coming soon)
 - Email: support@unfuzz.app
-- Twitter: @unfuzzapp
+- GitHub: [@yourusername](https://github.com/yourusername)
 
-## 🗺️ Roadmap
+## 🎯 Performance
 
-- [ ] Video frame culling
-- [ ] Custom AI model training
-- [ ] Lightroom/Capture One integration
-- [ ] Mobile apps (iOS/Android)
-- [ ] Team collaboration features
-- [ ] Advanced batch editing
+- **Analysis Speed**: 15-25 seconds per image (Gemini API)
+- **Batch Processing**: Parallel processing for multiple images
+- **Thumbnail Generation**: < 100ms per image
+- **Memory Efficient**: Images resized to 2048px for API processing
+- **Storage**: Minimal - only uploads and thumbnails stored locally
 
-## 📚 Documentation
+## 💡 Tips for Best Results
 
-For detailed documentation, visit:
-- [Product Requirements Document](./PRD.md)
-- [Database Schema](./database/schema.sql)
-- [API Documentation](http://localhost:8000/api/docs)
+1. **Upload High-Quality Images**: Better source = better analysis
+2. **Include EXIF Data**: Camera settings help AI provide better recommendations
+3. **Batch Upload**: Upload all similar images together for better duplicate detection
+4. **Review AI Suggestions**: AI is smart but your artistic vision matters
+5. **Use Enhancement Preview**: Always preview before downloading enhanced versions
 
 ---
 
-**Made with ❤️ for photographers who value their time**
+**Built with ❤️ for photographers who value their time**
+
+*Powered by Google Gemini Vision AI, Next.js 16, FastAPI, and modern web technologies*

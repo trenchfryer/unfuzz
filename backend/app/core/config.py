@@ -18,11 +18,18 @@ class Settings(BaseSettings):
         "https://unfuzz.vercel.app"
     ]
 
+    # AI Vision Provider
+    VISION_PROVIDER: str = "gemini"  # "openai" or "gemini"
+
     # OpenAI
     OPENAI_API_KEY: str
-    OPENAI_MODEL: str = "gpt-4-vision-preview"
+    OPENAI_MODEL: str = "gpt-5.1"
     OPENAI_MAX_TOKENS: int = 1500
     OPENAI_TEMPERATURE: float = 0.3
+
+    # Google Gemini
+    GEMINI_API_KEY: str
+    GEMINI_MODEL: str = "gemini-2.0-flash-exp"
 
     # Supabase
     SUPABASE_URL: str
@@ -50,7 +57,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 60
 
     class Config:
-        env_file = ".env"
+        env_file = "../.env"
         case_sensitive = True
 
 

@@ -172,7 +172,7 @@ Provide response in this EXACT JSON format:
                         ]
                     }
                 ],
-                max_tokens=settings.OPENAI_MAX_TOKENS,
+                max_completion_tokens=settings.OPENAI_MAX_TOKENS,  # Changed from max_tokens to max_completion_tokens for GPT-5.1
                 temperature=settings.OPENAI_TEMPERATURE,
                 response_format={"type": "json_object"}
             )

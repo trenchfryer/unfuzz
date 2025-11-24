@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { CheckCircleIcon, XCircleIcon, StarIcon } from '@heroicons/react/24/solid';
-import { StarIcon as StarOutlineIcon } from '@heroicons/react/24/outline';
+import { StarIcon as StarOutlineIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import type { ImageData } from '@/lib/types';
 import ImageDetailModal from './ImageDetailModal';
+import EnhancementPreviewModal from './EnhancementPreviewModal';
 
 interface ImageGalleryProps {
   images: ImageData[];
@@ -14,6 +15,7 @@ interface ImageGalleryProps {
 export default function ImageGallery({ images, onImagesChange }: ImageGalleryProps) {
   const [filter, setFilter] = useState<'all' | 'excellent' | 'good' | 'acceptable' | 'poor' | 'reject'>('all');
   const [selectedImage, setSelectedImage] = useState<ImageData | null>(null);
+  const [enhancementImage, setEnhancementImage] = useState<ImageData | null>(null);
   const [sortBy, setSortBy] = useState<'score' | 'time' | 'name'>('score');
 
   const filteredImages = images.filter((img) => {
@@ -175,35 +177,19 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
             onClick={() => setSelectedImage(image)}
           >
             {/* Thumbnail */}
-            <div className="aspect-square bg-gray-200 relative">
+            <div className="aspect-square bg-gray-200 relative overflow-hidden">
               <img
-                src={image.thumbnail_url}
+                src={image.thumbnail_path || image.file_path}
                 alt={image.filename}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover absolute inset-0"
+                style={{
+                  zIndex: 1
+                }}
               />
-
-              {/* Selection Overlay */}
-              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all">
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleSelection(image.id);
-                    }}
-                    className="p-2 bg-white rounded-full hover:bg-gray-100"
-                  >
-                    {image.user_selected ? (
-                      <CheckCircleIcon className="h-8 w-8 text-purple-600" />
-                    ) : (
-                      <XCircleIcon className="h-8 w-8 text-gray-400" />
-                    )}
-                  </button>
-                </div>
-              </div>
 
               {/* Quality Badge */}
               {image.analysis && (
-                <div className="absolute top-2 left-2">
+                <div className="absolute top-2 left-2" style={{ zIndex: 10 }}>
                   <span
                     className={`px-2 py-1 rounded text-xs font-bold ${getQualityBadge(
                       image.analysis.quality_tier
@@ -216,8 +202,27 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
 
               {/* Selected Badge */}
               {image.user_selected && (
-                <div className="absolute top-2 right-2">
+                <div className="absolute top-2 right-2" style={{ zIndex: 10 }}>
                   <CheckCircleIcon className="h-6 w-6 text-purple-600 bg-white rounded-full" />
+                </div>
+              )}
+
+              {/* Enhance Button - Shows on hover if post-processing available */}
+              {image.analysis?.post_processing?.can_auto_fix && (
+                <div
+                  className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all flex items-center justify-center"
+                  style={{ zIndex: 5 }}
+                >
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEnhancementImage(image);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium flex items-center gap-2 shadow-lg"
+                  >
+                    <SparklesIcon className="h-5 w-5" />
+                    Enhance
+                  </button>
                 </div>
               )}
             </div>
@@ -251,6 +256,15 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
           image={selectedImage}
           onClose={() => setSelectedImage(null)}
           onToggleSelection={() => toggleSelection(selectedImage.id)}
+        />
+      )}
+
+      {/* Enhancement Preview Modal */}
+      {enhancementImage && (
+        <EnhancementPreviewModal
+          isOpen={true}
+          image={enhancementImage}
+          onClose={() => setEnhancementImage(null)}
         />
       )}
     </div>

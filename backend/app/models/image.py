@@ -64,6 +64,35 @@ class SubjectAnalysis(BaseModel):
     has_people: bool = False
 
 
+class CameraSettingsRecommendations(BaseModel):
+    """Specific camera settings recommendations based on EXIF analysis"""
+    iso_recommendation: Optional[str] = None  # e.g., "Reduce ISO to 800-1600 to minimize noise"
+    aperture_recommendation: Optional[str] = None  # e.g., "Use f/2.8-f/4 for sharper subject with background separation"
+    shutter_speed_recommendation: Optional[str] = None  # e.g., "Increase to 1/500s to freeze motion"
+    exposure_compensation: Optional[str] = None  # e.g., "+0.7 EV to brighten shadows"
+    white_balance: Optional[str] = None  # e.g., "Use manual WB 5500K for consistent color"
+    focus_mode: Optional[str] = None  # e.g., "Use continuous AF for moving subjects"
+    metering_mode: Optional[str] = None  # e.g., "Spot metering on subject's face"
+    general_tips: List[str] = []  # Additional shooting tips
+
+
+class PostProcessingRecommendations(BaseModel):
+    """Automated post-processing adjustments that can be applied"""
+    exposure_adjustment: Optional[float] = None  # -2.0 to +2.0 EV
+    contrast_adjustment: Optional[float] = None  # -100 to +100
+    highlights_adjustment: Optional[float] = None  # -100 to +100 (recover blown highlights)
+    shadows_adjustment: Optional[float] = None  # -100 to +100 (lift shadows)
+    whites_adjustment: Optional[float] = None  # -100 to +100
+    blacks_adjustment: Optional[float] = None  # -100 to +100
+    saturation_adjustment: Optional[float] = None  # -100 to +100
+    vibrance_adjustment: Optional[float] = None  # -100 to +100
+    sharpness_adjustment: Optional[float] = None  # 0 to +100
+    noise_reduction: Optional[float] = None  # 0 to 100 (strength)
+    temperature_adjustment: Optional[int] = None  # -100 to +100 (Kelvin shift)
+    tint_adjustment: Optional[int] = None  # -100 to +100 (green/magenta)
+    can_auto_fix: bool = False  # Whether automated enhancement is recommended
+
+
 class ImageAnalysisResult(BaseModel):
     overall_score: float = Field(..., ge=0, le=100)
     quality_tier: QualityTier
@@ -74,6 +103,8 @@ class ImageAnalysisResult(BaseModel):
     ai_summary: str
     recommendations: List[str] = []
     subject_analysis: SubjectAnalysis
+    camera_settings: Optional[CameraSettingsRecommendations] = None
+    post_processing: Optional[PostProcessingRecommendations] = None
 
 
 class ImageMetadata(BaseModel):

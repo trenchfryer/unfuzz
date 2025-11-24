@@ -1,10 +1,12 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import images, projects, analysis
+from app.api import images, projects, analysis, enhancement
 import logging
 import time
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -105,6 +107,16 @@ app.include_router(
     prefix=f"{settings.API_V1_PREFIX}/analysis",
     tags=["analysis"]
 )
+app.include_router(
+    enhancement.router,
+    prefix=f"{settings.API_V1_PREFIX}/enhancement",
+    tags=["enhancement"]
+)
+
+# Mount static files for serving uploads
+# Ensure uploads directory exists
+os.makedirs(settings.UPLOAD_FOLDER, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_FOLDER), name="uploads")
 
 
 if __name__ == "__main__":

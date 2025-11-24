@@ -12,6 +12,60 @@ class ImageProcessor:
     """Utilities for image processing and EXIF extraction."""
 
     @staticmethod
+    def _convert_exif_value_to_string(value: Any) -> Optional[str]:
+        """
+        Convert EXIF value to string format.
+
+        Args:
+            value: EXIF value (can be IFDRational, tuple, int, float, or string)
+
+        Returns:
+            String representation or None
+        """
+        if value is None:
+            return None
+
+        # Handle IFDRational objects (fractions like 1/125)
+        if hasattr(value, 'numerator') and hasattr(value, 'denominator'):
+            # For fractions, calculate decimal value
+            if value.denominator == 0:
+                return None
+            decimal_value = value.numerator / value.denominator
+            # Format nicely (e.g., "1/125" for shutter speed)
+            if decimal_value == 0:
+                return "0"
+            elif decimal_value < 1:
+                return f"1/{int(1/decimal_value)}"
+            else:
+                return f"{decimal_value:.2f}".rstrip('0').rstrip('.')
+
+        # Handle tuples (like focal length (24, 1) = 24mm)
+        if isinstance(value, tuple):
+            if len(value) == 2 and isinstance(value[0], (int, float)) and isinstance(value[1], (int, float)):
+                if value[1] == 0:
+                    return None
+                result = value[0] / value[1]
+                if result == 0:
+                    return "0"
+                return f"{result:.2f}".rstrip('0').rstrip('.')
+            else:
+                return str(value)
+
+        # Handle numbers
+        if isinstance(value, (int, float)):
+            return str(value)
+
+        # Handle bytes (some EXIF fields are bytes)
+        if isinstance(value, bytes):
+            try:
+                return value.decode('utf-8', errors='ignore').strip()
+            except:
+                return None
+
+        # Already a string or other type
+        return str(value) if value else None
+
+    @staticmethod
     def extract_exif_data(image_path: str) -> Dict[str, Any]:
         """
         Extract EXIF data from an image.
@@ -37,18 +91,60 @@ class ImageProcessor:
             if hasattr(img, '_getexif') and img._getexif():
                 exif = img._getexif()
 
+                # Convert all EXIF values to JSON-serializable types
                 for tag_id, value in exif.items():
                     tag = ExifTags.TAGS.get(tag_id, tag_id)
-                    exif_data[tag] = value
+                    # Convert to string to ensure JSON serializability
+                    serializable_value = ImageProcessor._convert_exif_value_to_string(value)
+                    if serializable_value is not None:
+                        exif_data[tag] = serializable_value
 
-                # Extract commonly used fields
-                exif_data['camera_make'] = exif_data.get('Make', None)
-                exif_data['camera_model'] = exif_data.get('Model', None)
-                exif_data['lens_model'] = exif_data.get('LensModel', None)
-                exif_data['focal_length'] = exif_data.get('FocalLength', None)
-                exif_data['aperture'] = exif_data.get('FNumber', None)
-                exif_data['shutter_speed'] = exif_data.get('ExposureTime', None)
-                exif_data['iso'] = exif_data.get('ISOSpeedRatings', None)
+                # Extract commonly used fields and convert to appropriate types
+                # Strings
+                exif_data['camera_make'] = ImageProcessor._convert_exif_value_to_string(exif_data.get('Make', None))
+                exif_data['camera_model'] = ImageProcessor._convert_exif_value_to_string(exif_data.get('Model', None))
+                exif_data['lens_model'] = ImageProcessor._convert_exif_value_to_string(exif_data.get('LensModel', None))
+                exif_data['shutter_speed'] = ImageProcessor._convert_exif_value_to_string(exif_data.get('ExposureTime', None))
+
+                # Floats - focal_length
+                focal_length_raw = exif_data.get('FocalLength', None)
+                if focal_length_raw is not None:
+                    try:
+                        if hasattr(focal_length_raw, 'numerator') and hasattr(focal_length_raw, 'denominator'):
+                            exif_data['focal_length'] = float(focal_length_raw.numerator) / float(focal_length_raw.denominator) if focal_length_raw.denominator != 0 else None
+                        elif isinstance(focal_length_raw, tuple) and len(focal_length_raw) == 2:
+                            exif_data['focal_length'] = float(focal_length_raw[0]) / float(focal_length_raw[1]) if focal_length_raw[1] != 0 else None
+                        else:
+                            exif_data['focal_length'] = float(focal_length_raw)
+                    except (ValueError, TypeError):
+                        exif_data['focal_length'] = None
+                else:
+                    exif_data['focal_length'] = None
+
+                # Floats - aperture
+                aperture_raw = exif_data.get('FNumber', None)
+                if aperture_raw is not None:
+                    try:
+                        if hasattr(aperture_raw, 'numerator') and hasattr(aperture_raw, 'denominator'):
+                            exif_data['aperture'] = float(aperture_raw.numerator) / float(aperture_raw.denominator) if aperture_raw.denominator != 0 else None
+                        elif isinstance(aperture_raw, tuple) and len(aperture_raw) == 2:
+                            exif_data['aperture'] = float(aperture_raw[0]) / float(aperture_raw[1]) if aperture_raw[1] != 0 else None
+                        else:
+                            exif_data['aperture'] = float(aperture_raw)
+                    except (ValueError, TypeError):
+                        exif_data['aperture'] = None
+                else:
+                    exif_data['aperture'] = None
+
+                # Integer - ISO
+                iso_raw = exif_data.get('ISOSpeedRatings', None)
+                if iso_raw is not None:
+                    try:
+                        exif_data['iso'] = int(iso_raw)
+                    except (ValueError, TypeError):
+                        exif_data['iso'] = None
+                else:
+                    exif_data['iso'] = None
 
                 # Parse datetime
                 datetime_str = exif_data.get('DateTime', None)
