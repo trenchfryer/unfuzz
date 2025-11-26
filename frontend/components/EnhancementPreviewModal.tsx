@@ -2,10 +2,10 @@
 
 import { Fragment, useState } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
-import { XMarkIcon, ArrowDownTrayIcon, CloudArrowUpIcon } from '@heroicons/react/24/outline';
-import { SparklesIcon } from '@heroicons/react/24/solid';
+import { XMarkIcon, ArrowDownTrayIcon, BookmarkIcon } from '@heroicons/react/24/outline';
+import { SparklesIcon, CheckCircleIcon } from '@heroicons/react/24/solid';
 import type { ImageData, PostProcessingRecommendations } from '@/lib/types';
-import { getEnhancementPreviewUrl, downloadEnhancedImage } from '@/lib/api';
+import { getEnhancementPreviewUrl, downloadEnhancedImage, saveEnhancedImageToLibrary, getEnhancementDownloadUrl } from '@/lib/api';
 
 interface EnhancementPreviewModalProps {
   isOpen: boolean;
@@ -19,12 +19,17 @@ export default function EnhancementPreviewModal({
   image,
 }: EnhancementPreviewModalProps) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isSavingOriginal, setIsSavingOriginal] = useState(false);
+  const [isSavingEnhanced, setIsSavingEnhanced] = useState(false);
+  const [savedOriginal, setSavedOriginal] = useState(false);
+  const [savedEnhanced, setSavedEnhanced] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
 
   const postProcessing = image.analysis?.post_processing;
   const previewUrl = getEnhancementPreviewUrl(image.id);
+  const enhancedUrl = getEnhancementDownloadUrl(image.id);
 
-  const handleDownload = async () => {
+  const handleDownloadEnhanced = async () => {
     setIsDownloading(true);
     try {
       const filename = image.filename.replace(/\.[^/.]+$/, '_enhanced.jpg');
@@ -37,9 +42,59 @@ export default function EnhancementPreviewModal({
     }
   };
 
-  const handleSaveToGoogleDrive = () => {
-    // Placeholder for Google Drive integration
-    alert('Google Drive integration coming soon!');
+  const handleDownloadOriginal = () => {
+    const link = document.createElement('a');
+    link.href = image.file_path;
+    link.download = image.filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleSaveOriginalToLibrary = async () => {
+    setIsSavingOriginal(true);
+    try {
+      await saveEnhancedImageToLibrary({
+        original_image_id: image.id,
+        team_id: image.team_id,
+        player_id: image.player_id,
+        title: image.filename.replace(/\.[^/.]+$/, '') + ' (Original)',
+        save_original: true,
+      });
+      setSavedOriginal(true);
+      setTimeout(() => {
+        setSavedOriginal(false);
+      }, 3000);
+    } catch (error) {
+      console.error('Error saving original to library:', error);
+      alert('Failed to save to library. Please try again.');
+    } finally {
+      setIsSavingOriginal(false);
+    }
+  };
+
+  const handleSaveEnhancedToLibrary = async () => {
+    setIsSavingEnhanced(true);
+    try {
+      await saveEnhancedImageToLibrary({
+        original_image_id: image.id,
+        team_id: image.team_id,
+        player_id: image.player_id,
+        player_name_override: image.player_name,
+        jersey_number_override: image.detected_jersey_number,
+        title: image.filename.replace(/\.[^/.]+$/, ''),
+        post_processing: image.analysis?.post_processing,
+      });
+      setSavedEnhanced(true);
+      setTimeout(() => {
+        setSavedEnhanced(false);
+      }, 3000);
+    } catch (error) {
+      console.error('Error saving enhanced to library:', error);
+      alert('Failed to save to library. Please try again.');
+    } finally {
+      setIsSavingEnhanced(false);
+    }
   };
 
   const getAdjustmentLabel = (value: number | undefined, suffix: string = '') => {
@@ -96,12 +151,38 @@ export default function EnhancementPreviewModal({
                   {/* Original Image */}
                   <div>
                     <div className="text-sm font-medium text-gray-400 mb-2">Original</div>
-                    <div className="relative bg-gray-800 rounded-lg overflow-hidden aspect-[4/3]">
+                    <div className="relative bg-gray-800 rounded-lg overflow-hidden aspect-[4/3] mb-3">
                       <img
                         src={image.file_path}
                         alt="Original"
                         className="w-full h-full object-contain"
                       />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleDownloadOriginal}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors text-sm"
+                      >
+                        <ArrowDownTrayIcon className="h-4 w-4" />
+                        Download
+                      </button>
+                      <button
+                        onClick={handleSaveOriginalToLibrary}
+                        disabled={isSavingOriginal || savedOriginal}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                      >
+                        {savedOriginal ? (
+                          <>
+                            <CheckCircleIcon className="h-4 w-4" />
+                            Saved
+                          </>
+                        ) : (
+                          <>
+                            <BookmarkIcon className="h-4 w-4" />
+                            {isSavingOriginal ? 'Saving...' : 'Save'}
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
 
@@ -111,7 +192,7 @@ export default function EnhancementPreviewModal({
                       <SparklesIcon className="h-4 w-4" />
                       Enhanced
                     </div>
-                    <div className="relative bg-gray-800 rounded-lg overflow-hidden aspect-[4/3]">
+                    <div className="relative bg-gray-800 rounded-lg overflow-hidden aspect-[4/3] mb-3">
                       {!previewLoaded && (
                         <div className="absolute inset-0 flex items-center justify-center">
                           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
@@ -123,6 +204,33 @@ export default function EnhancementPreviewModal({
                         className="w-full h-full object-contain"
                         onLoad={() => setPreviewLoaded(true)}
                       />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleDownloadEnhanced}
+                        disabled={isDownloading}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                      >
+                        <ArrowDownTrayIcon className="h-4 w-4" />
+                        {isDownloading ? 'Downloading...' : 'Download'}
+                      </button>
+                      <button
+                        onClick={handleSaveEnhancedToLibrary}
+                        disabled={isSavingEnhanced || savedEnhanced}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                      >
+                        {savedEnhanced ? (
+                          <>
+                            <CheckCircleIcon className="h-4 w-4" />
+                            Saved
+                          </>
+                        ) : (
+                          <>
+                            <BookmarkIcon className="h-4 w-4" />
+                            {isSavingEnhanced ? 'Saving...' : 'Save'}
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -185,27 +293,26 @@ export default function EnhancementPreviewModal({
                 )}
 
                 {/* Action Buttons */}
-                <div className="flex items-center justify-end gap-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    {savedOriginal && (
+                      <div className="flex items-center gap-2 text-green-400 text-sm font-medium">
+                        <CheckCircleIcon className="h-5 w-5" />
+                        Original saved to library!
+                      </div>
+                    )}
+                    {savedEnhanced && (
+                      <div className="flex items-center gap-2 text-green-400 text-sm font-medium">
+                        <CheckCircleIcon className="h-5 w-5" />
+                        Enhanced saved to library!
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={onClose}
-                    className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+                    className="px-6 py-2 text-gray-300 hover:text-white transition-colors"
                   >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSaveToGoogleDrive}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <CloudArrowUpIcon className="h-5 w-5" />
-                    Save to Google Drive
-                  </button>
-                  <button
-                    onClick={handleDownload}
-                    disabled={isDownloading}
-                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <ArrowDownTrayIcon className="h-5 w-5" />
-                    {isDownloading ? 'Downloading...' : 'Download Enhanced'}
+                    Close
                   </button>
                 </div>
               </Dialog.Panel>

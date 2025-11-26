@@ -20,11 +20,14 @@ export default function Home() {
             <Link href="/docs" className="text-gray-600 hover:text-gray-900">
               Docs
             </Link>
+            <Link href="/auth/login" className="text-gray-600 hover:text-gray-900">
+              Log In
+            </Link>
             <Link
-              href="/app"
+              href="/auth/login?signup=true"
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
-              Start Culling
+              Sign Up Free
             </Link>
           </nav>
         </div>
@@ -44,16 +47,16 @@ export default function Home() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
-              href="/app"
+              href="/auth/login?signup=true"
               className="px-8 py-4 bg-blue-600 text-white text-lg font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-lg hover:shadow-xl"
             >
-              Try It Free
+              Get Started Free
             </Link>
             <Link
-              href="/demo"
+              href="/auth/login"
               className="px-8 py-4 border-2 border-gray-300 text-gray-700 text-lg font-semibold rounded-lg hover:border-gray-400 transition-colors"
             >
-              Watch Demo
+              Sign In
             </Link>
           </div>
 
@@ -191,7 +194,7 @@ export default function Home() {
             Join thousands of photographers who've taken back their time with UnFuzz.
           </p>
           <Link
-            href="/app"
+            href="/auth/login?signup=true"
             className="inline-block px-8 py-4 bg-white text-blue-600 text-lg font-semibold rounded-lg hover:bg-gray-100 transition-colors shadow-lg hover:shadow-xl"
           >
             Start Culling Now - It's Free

@@ -13,6 +13,8 @@ from app.models.image import (
     PostProcessingRecommendations
 )
 import logging
+import asyncio
+from google.api_core.exceptions import DeadlineExceeded, ResourceExhausted
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +38,14 @@ class GeminiVisionService:
         genai.configure(api_key=settings.GEMINI_API_KEY)
         self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
 
-    def _create_analysis_prompt(self, exif_data: Optional[Dict] = None, sequence_info: Optional[Dict] = None) -> str:
+    def _create_analysis_prompt(
+        self,
+        exif_data: Optional[Dict] = None,
+        sequence_info: Optional[Dict] = None,
+        team_mode: bool = False,
+        player_roster: Optional[list[Dict]] = None,
+        team_colors: Optional[Dict] = None
+    ) -> str:
         """Create comprehensive analysis prompt for Gemini Vision API."""
         prompt = """
 Analyze this photograph as a professional photography expert. Evaluate the image across these specific criteria and provide scores (0-100) for each:
@@ -92,7 +101,71 @@ POST-PROCESSING RECOMMENDATIONS:
 - Provide specific numeric adjustment values for automated enhancement
 - Base adjustments on detected issues (e.g., underexposure, color casts, low contrast)
 - Set can_auto_fix=true only if automated adjustments would significantly improve the image
-- All adjustment values should be realistic and applicable in standard photo editing software
+- All adjustment values should be realistic and applicable in standard photo editing software"""
+
+        # Add team/jersey detection section if team mode is enabled
+        if team_mode and player_roster:
+            # Build team color context string
+            color_context = ""
+            if team_colors:
+                home_colors = []
+                away_colors = []
+
+                if team_colors.get("home", {}).get("primary"):
+                    home_colors.append(f"Primary: {team_colors['home']['primary']}")
+                if team_colors.get("home", {}).get("secondary"):
+                    home_colors.append(f"Secondary: {team_colors['home']['secondary']}")
+                if team_colors.get("home", {}).get("tertiary"):
+                    home_colors.append(f"Tertiary: {team_colors['home']['tertiary']}")
+
+                if team_colors.get("away", {}).get("primary"):
+                    away_colors.append(f"Primary: {team_colors['away']['primary']}")
+                if team_colors.get("away", {}).get("secondary"):
+                    away_colors.append(f"Secondary: {team_colors['away']['secondary']}")
+                if team_colors.get("away", {}).get("tertiary"):
+                    away_colors.append(f"Tertiary: {team_colors['away']['tertiary']}")
+
+                if home_colors:
+                    color_context += f"\nHome Jersey Colors: {', '.join(home_colors)}"
+                if away_colors:
+                    color_context += f"\nAway Jersey Colors: {', '.join(away_colors)}"
+
+            prompt += f"""
+
+TEAM MODE - PLAYER AND JERSEY DETECTION:
+This image is being analyzed in TEAM MODE for player identification.
+
+Player Roster:
+{json.dumps(player_roster, indent=2)}
+{color_context}
+
+CRITICAL PLAYER DETECTION INSTRUCTIONS:
+- FOCUS ON IDENTIFYING ALL PLAYERS IN THE TEAM'S COLORS (as specified above)
+- DO NOT identify players wearing opposing team colors/jerseys
+- The team we're tracking wears the colors specified above
+- Opposing players (in different colored jerseys) should be IGNORED
+- Look for jersey numbers on the front, back, or sides of uniforms
+- Examine ALL visible jersey numbers but ONLY report numbers for players in OUR team's colors
+- Report ALL detected jersey numbers with confidence level (0.0 to 1.0)
+- Consider image quality when assessing confidence (blurry numbers = lower confidence)
+
+GROUP PHOTO DETECTION:
+- Determine if this is a single player photo or a GROUP photo with multiple team players
+- If multiple team players are visible (2 or more), set is_group_photo=true
+- For group photos, detect and list ALL visible jersey numbers from OUR team
+- Match detected jersey numbers to player names from the roster
+- List player names comma-separated when multiple players detected
+
+Include in your response:
+- is_group_photo: true if 2+ team players are visible, false for single player
+- detected_jersey_numbers: Array of objects with "number" (string), "confidence" (0.0-1.0), and "player_name" (from roster match or null)
+- primary_jersey_number: The most prominent/clear jersey number (or null if none detected)
+- jersey_confidence: Confidence for the primary jersey number (0.0-1.0)
+- player_names: Array of player names detected (from roster matches), empty if none
+- team_logo_match: true/false if team logo appears to match (or null if logo not visible)
+"""
+
+        prompt += """
 
 Provide response in this EXACT JSON format:
 {
@@ -163,7 +236,21 @@ Provide response in this EXACT JSON format:
     "temperature_adjustment": <-100 to +100 or null>,
     "tint_adjustment": <-100 to +100 or null>,
     "can_auto_fix": <true if adjustments would help significantly, false otherwise>
-  }
+  }"""
+
+        # Add jersey detection fields to JSON format if team mode
+        if team_mode:
+            prompt += """,
+  "jersey_detection": {
+    "is_group_photo": false,
+    "detected_jersey_numbers": [{"number": "23", "confidence": 0.95, "player_name": "John Smith"}],
+    "primary_jersey_number": "23",
+    "jersey_confidence": 0.95,
+    "player_names": ["John Smith"],
+    "team_logo_match": true
+  }"""
+
+        prompt += """
 }
 """
 
@@ -183,7 +270,11 @@ Provide response in this EXACT JSON format:
         self,
         image_path: str,
         exif_data: Optional[Dict] = None,
-        sequence_info: Optional[Dict] = None
+        sequence_info: Optional[Dict] = None,
+        team_mode: bool = False,
+        player_roster: Optional[list[Dict]] = None,
+        team_logo_path: Optional[str] = None,
+        team_colors: Optional[Dict] = None
     ) -> ImageAnalysisResult:
         """
         Analyze image using Gemini Vision API.
@@ -216,17 +307,59 @@ Provide response in this EXACT JSON format:
                 logger.info(f"Resized to {new_width}x{new_height}")
 
             # Create prompt
-            prompt = self._create_analysis_prompt(exif_data, sequence_info)
+            prompt = self._create_analysis_prompt(exif_data, sequence_info, team_mode, player_roster, team_colors)
 
-            # Call Gemini Vision API
-            logger.info(f"Sending image to Gemini for analysis...")
-            response = self.model.generate_content(
-                [prompt, img],
-                generation_config=genai.GenerationConfig(
-                    temperature=0.3,
-                    max_output_tokens=6144  # Optimized: Reduced from 8192, but enough for full JSON responses
-                )
-            )
+            # Prepare content for Gemini
+            content_parts = [prompt, img]
+
+            # Add team logo if provided in team mode
+            if team_mode and team_logo_path:
+                try:
+                    logo_img = Image.open(team_logo_path)
+                    # Resize logo to reasonable size (max 512px)
+                    max_logo_size = 512
+                    if logo_img.width > max_logo_size or logo_img.height > max_logo_size:
+                        if logo_img.width > logo_img.height:
+                            new_width = max_logo_size
+                            new_height = int((max_logo_size / logo_img.width) * logo_img.height)
+                        else:
+                            new_height = max_logo_size
+                            new_width = int((max_logo_size / logo_img.height) * logo_img.width)
+                        logo_img = logo_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+                    # Add logo to content with context
+                    content_parts.insert(1, "Team Logo (for reference):")
+                    content_parts.insert(2, logo_img)
+                    logger.info("Added team logo to analysis")
+                except Exception as e:
+                    logger.warning(f"Failed to load team logo: {e}")
+
+            # Call Gemini Vision API with retry logic for timeouts
+            logger.info(f"Sending image to Gemini for analysis (team_mode={team_mode})...")
+
+            max_retries = 3
+            retry_delay = 2  # Start with 2 seconds
+            last_error = None
+
+            for attempt in range(max_retries):
+                try:
+                    response = self.model.generate_content(
+                        content_parts,
+                        generation_config=genai.GenerationConfig(
+                            temperature=0.3,
+                            max_output_tokens=6144  # Optimized: Reduced from 8192, but enough for full JSON responses
+                        )
+                    )
+                    break  # Success, exit retry loop
+                except (DeadlineExceeded, ResourceExhausted) as e:
+                    last_error = e
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Gemini API timeout/rate limit (attempt {attempt + 1}/{max_retries}). Retrying in {retry_delay}s...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        logger.error(f"Gemini API failed after {max_retries} attempts")
+                        raise ValueError(f"Gemini API timeout after {max_retries} retries. Please try again later.") from e
 
             # Parse response
             logger.info(f"Gemini response candidates count: {len(response.candidates) if hasattr(response, 'candidates') else 0}")
@@ -246,9 +379,9 @@ Provide response in this EXACT JSON format:
             # Check if response was truncated due to max tokens (finish_reason == 2)
             if finish_reason == 2:
                 logger.warning("Response truncated due to MAX_TOKENS. Retrying with increased token limit...")
-                # Retry with higher token limit
+                # Retry with higher token limit using full content_parts (includes team logo if present)
                 response = self.model.generate_content(
-                    [prompt, img],
+                    content_parts,
                     generation_config=genai.GenerationConfig(
                         temperature=0.3,
                         max_output_tokens=8192  # Increased limit for retry
@@ -314,6 +447,42 @@ Provide response in this EXACT JSON format:
             if "post_processing" in analysis_data and analysis_data["post_processing"]:
                 post_processing = PostProcessingRecommendations(**analysis_data["post_processing"])
 
+            # Extract jersey detection data if present (team mode)
+            CONFIDENCE_THRESHOLD = 0.90
+            jersey_detection = analysis_data.get("jersey_detection", {})
+
+            # Filter primary jersey by confidence threshold
+            primary_jersey_number = jersey_detection.get("primary_jersey_number")
+            jersey_confidence = jersey_detection.get("jersey_confidence")
+
+            # Don't report primary jersey if confidence is too low
+            if jersey_confidence and jersey_confidence < CONFIDENCE_THRESHOLD:
+                logger.info(f"⚠️ Primary jersey #{primary_jersey_number} confidence too low ({jersey_confidence:.2f} < {CONFIDENCE_THRESHOLD}), filtering out")
+                primary_jersey_number = None
+                jersey_confidence = None
+
+            is_group_photo = jersey_detection.get("is_group_photo", False)
+
+            # Filter detected jerseys by confidence threshold (80% minimum)
+            all_detected_jerseys = jersey_detection.get("detected_jersey_numbers", [])
+            detected_jersey_numbers = [
+                jersey for jersey in all_detected_jerseys
+                if jersey.get("confidence", 0) >= CONFIDENCE_THRESHOLD
+            ]
+
+            # Extract player names from high-confidence detections only
+            player_names = [
+                jersey.get("player_name")
+                for jersey in detected_jersey_numbers
+                if jersey.get("player_name")
+            ]
+
+            # Log filtered vs total detections
+            if is_group_photo and all_detected_jerseys:
+                filtered_count = len(all_detected_jerseys) - len(detected_jersey_numbers)
+                if filtered_count > 0:
+                    logger.info(f"🔍 Filtered out {filtered_count} low-confidence detections (below {CONFIDENCE_THRESHOLD*100}%)")
+
             result = ImageAnalysisResult(
                 overall_score=analysis_data["overall_score"],
                 quality_tier=QualityTier(analysis_data["quality_tier"]),
@@ -325,10 +494,21 @@ Provide response in this EXACT JSON format:
                 recommendations=analysis_data.get("recommendations", []),
                 subject_analysis=subject_analysis,
                 camera_settings=camera_settings,
-                post_processing=post_processing
+                post_processing=post_processing,
+                jersey_number=primary_jersey_number,
+                jersey_confidence=jersey_confidence,
+                is_group_photo=is_group_photo,
+                detected_jersey_numbers=detected_jersey_numbers,
+                player_names=player_names
             )
 
             logger.info(f"Analysis completed: Overall score {result.overall_score}, Tier: {result.quality_tier}")
+            if is_group_photo:
+                logger.info(f"🎯 GROUP PHOTO detected with {len(detected_jersey_numbers)} players: {', '.join(player_names)}")
+                for jersey in detected_jersey_numbers:
+                    logger.info(f"  - #{jersey.get('number')} {jersey.get('player_name', 'Unknown')} (confidence: {jersey.get('confidence', 0):.2f})")
+            elif primary_jersey_number:
+                logger.info(f"Jersey detected: #{primary_jersey_number} (confidence: {jersey_confidence})")
             return result
 
         except json.JSONDecodeError as e:

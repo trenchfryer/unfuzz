@@ -163,10 +163,89 @@ class ImageProcessor:
         return exif_data
 
     @staticmethod
+    def optimize_image_for_storage(
+        image_path: str,
+        output_path: str,
+        max_dimension: int = 3000,
+        quality: int = 90,
+        use_webp: bool = True
+    ) -> Tuple[str, int, int]:
+        """
+        Optimize image for storage by resizing and compressing.
+
+        This dramatically reduces storage and bandwidth:
+        - 6000x4000 @ 10MB → 3000x2000 @ 1.5-2MB (85% reduction!)
+        - WebP format provides additional 25-35% savings
+
+        Args:
+            image_path: Path to source image
+            output_path: Path for optimized output
+            max_dimension: Maximum width or height (default 3000px for print quality)
+            quality: JPEG/WebP quality (default 90 for excellent quality)
+            use_webp: Use WebP format for better compression
+
+        Returns:
+            Tuple of (output_path, final_width, final_height)
+        """
+        try:
+            img = Image.open(image_path)
+            original_size = (img.width, img.height)
+
+            # Convert to RGB if necessary (required for JPEG/WebP)
+            if img.mode not in ('RGB', 'L'):
+                img = img.convert('RGB')
+
+            # Resize if larger than max_dimension
+            needs_resize = img.width > max_dimension or img.height > max_dimension
+            if needs_resize:
+                # Calculate new dimensions maintaining aspect ratio
+                if img.width > img.height:
+                    new_width = max_dimension
+                    new_height = int((max_dimension / img.width) * img.height)
+                else:
+                    new_height = max_dimension
+                    new_width = int((max_dimension / img.height) * img.width)
+
+                logger.info(f"Resizing image from {img.width}x{img.height} to {new_width}x{new_height}")
+                img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            else:
+                new_width, new_height = img.width, img.height
+                logger.info(f"Image {img.width}x{img.height} is within limits, no resize needed")
+
+            # Determine output format and adjust path
+            if use_webp:
+                # Change extension to .webp
+                output_path = os.path.splitext(output_path)[0] + '.webp'
+                img.save(output_path, "WEBP", quality=quality, method=4, optimize=True)
+                logger.info(f"Saved optimized WebP image: {output_path}")
+            else:
+                # Save as JPEG
+                output_path = os.path.splitext(output_path)[0] + '.jpg'
+                img.save(output_path, "JPEG", quality=quality, optimize=True, progressive=True)
+                logger.info(f"Saved optimized JPEG image: {output_path}")
+
+            # Log size savings
+            original_file_size = os.path.getsize(image_path)
+            optimized_file_size = os.path.getsize(output_path)
+            savings_percent = ((original_file_size - optimized_file_size) / original_file_size) * 100
+
+            logger.info(
+                f"Optimization complete: {original_file_size:,} → {optimized_file_size:,} bytes "
+                f"({savings_percent:.1f}% reduction)"
+            )
+
+            return output_path, new_width, new_height
+
+        except Exception as e:
+            logger.error(f"Error optimizing image {image_path}: {e}")
+            raise
+
+    @staticmethod
     def create_thumbnail(
         image_path: str,
         output_path: str,
-        size: Tuple[int, int] = (400, 400)
+        size: Tuple[int, int] = (400, 400),
+        quality: int = 75
     ) -> str:
         """
         Create a thumbnail of an image.
@@ -175,6 +254,7 @@ class ImageProcessor:
             image_path: Path to source image
             output_path: Path for thumbnail output
             size: Tuple of (width, height) for thumbnail
+            quality: JPEG quality (default 75 for thumbnails)
 
         Returns:
             Path to created thumbnail
@@ -189,8 +269,8 @@ class ImageProcessor:
             # Create thumbnail preserving aspect ratio
             img.thumbnail(size, Image.Resampling.LANCZOS)
 
-            # Save thumbnail
-            img.save(output_path, "JPEG", quality=85, optimize=True)
+            # Save thumbnail with optimization
+            img.save(output_path, "JPEG", quality=quality, optimize=True)
 
             logger.info(f"Created thumbnail: {output_path}")
             return output_path

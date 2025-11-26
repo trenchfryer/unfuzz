@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import images, projects, analysis, enhancement
+from app.api import images, projects, analysis, enhancement, teams, players, auth, library
 import logging
 import time
 import os
@@ -111,6 +111,22 @@ app.include_router(
     enhancement.router,
     prefix=f"{settings.API_V1_PREFIX}/enhancement",
     tags=["enhancement"]
+)
+app.include_router(
+    teams.router,
+    prefix=settings.API_V1_PREFIX
+)
+app.include_router(
+    players.router,
+    prefix=settings.API_V1_PREFIX
+)
+app.include_router(
+    auth.router,
+    prefix=settings.API_V1_PREFIX
+)
+app.include_router(
+    library.router,
+    prefix=settings.API_V1_PREFIX
 )
 
 # Mount static files for serving uploads

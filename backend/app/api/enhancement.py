@@ -109,10 +109,15 @@ async def enhance_image(image_id: str):
             recommendations
         )
 
-        # Get original filename
-        original_filename = image_doc.get("filename", "image.jpg")
-        name_parts = original_filename.rsplit(".", 1)
-        enhanced_filename = f"{name_parts[0]}_enhanced.jpg"
+        # Get original filename from path
+        original_filename = os.path.basename(image_path)
+        # Remove UUID prefix and get base name
+        name_parts = original_filename.split("_", 1)
+        if len(name_parts) > 1:
+            base_name = name_parts[1].rsplit(".", 1)[0]
+        else:
+            base_name = name_parts[0].rsplit(".", 1)[0]
+        enhanced_filename = f"{base_name}_enhanced.jpg"
 
         # Return as downloadable image
         return Response(

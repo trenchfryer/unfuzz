@@ -2,10 +2,12 @@
 
 import { useState } from 'react';
 import { CheckCircleIcon, XCircleIcon, StarIcon } from '@heroicons/react/24/solid';
-import { StarIcon as StarOutlineIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { StarIcon as StarOutlineIcon, SparklesIcon, PencilIcon } from '@heroicons/react/24/outline';
 import type { ImageData } from '@/lib/types';
 import ImageDetailModal from './ImageDetailModal';
 import EnhancementPreviewModal from './EnhancementPreviewModal';
+import EditPlayerModal from './EditPlayerModal';
+import { updateImagePlayerOverride } from '@/lib/api';
 
 interface ImageGalleryProps {
   images: ImageData[];
@@ -16,6 +18,7 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
   const [filter, setFilter] = useState<'all' | 'excellent' | 'good' | 'acceptable' | 'poor' | 'reject'>('all');
   const [selectedImage, setSelectedImage] = useState<ImageData | null>(null);
   const [enhancementImage, setEnhancementImage] = useState<ImageData | null>(null);
+  const [editPlayerImage, setEditPlayerImage] = useState<ImageData | null>(null);
   const [sortBy, setSortBy] = useState<'score' | 'time' | 'name'>('score');
 
   const filteredImages = images.filter((img) => {
@@ -39,6 +42,33 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
         img.id === imageId ? { ...img, user_selected: !img.user_selected } : img
       )
     );
+  };
+
+  const handleSavePlayerOverride = async (jerseyNumber: string, playerName: string) => {
+    if (!editPlayerImage) return;
+
+    try {
+      // Update backend
+      await updateImagePlayerOverride(editPlayerImage.id, playerName, jerseyNumber);
+
+      // Update local state
+      onImagesChange(
+        images.map((img) =>
+          img.id === editPlayerImage.id
+            ? {
+                ...img,
+                player_name_override: playerName || undefined,
+                jersey_number_override: jerseyNumber || undefined,
+              }
+            : img
+        )
+      );
+
+      setEditPlayerImage(null);
+    } catch (error) {
+      console.error('Failed to save player override:', error);
+      throw error;
+    }
   };
 
   const getQualityColor = (tier?: string) => {
@@ -231,10 +261,51 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
             <div className="p-2 bg-white">
               <p className="text-xs font-medium truncate">{image.filename}</p>
               {image.analysis && (
-                <p className="text-xs text-gray-500 mt-1">
-                  {image.analysis.quality_tier.charAt(0).toUpperCase() +
-                    image.analysis.quality_tier.slice(1)}
-                </p>
+                <>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {image.analysis.quality_tier.charAt(0).toUpperCase() +
+                      image.analysis.quality_tier.slice(1)}
+                  </p>
+                  {/* Player Identification */}
+                  {(image.detected_jersey_number || image.jersey_number_override || image.player_name_override || image.player_names?.length) && (
+                    <div className="mt-1 flex items-center gap-1">
+                      {image.is_group_photo && image.player_names && image.player_names.length > 0 ? (
+                        <>
+                          <span className="text-xs font-bold text-green-600">GROUP:</span>
+                          <span className="text-xs text-blue-800 truncate">
+                            {image.player_names.join(', ')}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xs font-bold text-blue-600">
+                            #{image.jersey_number_override || image.detected_jersey_number}
+                          </span>
+                          {(image.player_name_override || image.player_name) && (
+                            <span className={`text-xs truncate ${image.player_name_override ? 'text-purple-800 font-semibold' : 'text-blue-800'}`}>
+                              {image.player_name_override || image.player_name}
+                            </span>
+                          )}
+                          {image.player_confidence && !image.player_name_override && (
+                            <span className="text-xs text-gray-400">
+                              ({Math.round(image.player_confidence * 100)}%)
+                            </span>
+                          )}
+                        </>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditPlayerImage(image);
+                        }}
+                        className="ml-auto p-0.5 hover:bg-blue-100 rounded transition-colors"
+                        title="Edit player info"
+                      >
+                        <PencilIcon className="h-3 w-3 text-blue-600" />
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -265,6 +336,17 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
           isOpen={true}
           image={enhancementImage}
           onClose={() => setEnhancementImage(null)}
+        />
+      )}
+
+      {/* Edit Player Modal */}
+      {editPlayerImage && (
+        <EditPlayerModal
+          isOpen={true}
+          onClose={() => setEditPlayerImage(null)}
+          currentJerseyNumber={editPlayerImage.jersey_number_override || editPlayerImage.detected_jersey_number}
+          currentPlayerName={editPlayerImage.player_name_override || editPlayerImage.player_name}
+          onSave={handleSavePlayerOverride}
         />
       )}
     </div>

@@ -105,6 +105,13 @@ class ImageAnalysisResult(BaseModel):
     subject_analysis: SubjectAnalysis
     camera_settings: Optional[CameraSettingsRecommendations] = None
     post_processing: Optional[PostProcessingRecommendations] = None
+    # Team mode jersey detection
+    jersey_number: Optional[str] = None
+    jersey_confidence: Optional[float] = Field(None, ge=0, le=1)
+    # Group photo support
+    is_group_photo: Optional[bool] = False
+    detected_jersey_numbers: Optional[List[Dict[str, Any]]] = []
+    player_names: Optional[List[str]] = []
 
 
 class ImageMetadata(BaseModel):

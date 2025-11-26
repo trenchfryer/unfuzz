@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { PhotoIcon, CloudArrowUpIcon, SparklesIcon } from '@heroicons/react/24/outline';
-import { uploadImagesBatch, analyzeImage } from '@/lib/api';
-import type { ImageData, UploadProgress } from '@/lib/types';
+import { uploadImagesBatch, analyzeImage, getTeams } from '@/lib/api';
+import type { ImageData, UploadProgress, Team } from '@/lib/types';
 import ImageGallery from '@/components/ImageGallery';
+import UserMenu from '@/components/UserMenu';
 
 export default function AppPage() {
   const [images, setImages] = useState<ImageData[]>([]);
@@ -13,6 +14,28 @@ export default function AppPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentPhase, setCurrentPhase] = useState<'upload' | 'analyze' | 'review'>('upload');
+
+  // Team selection for player identification
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [loadingTeams, setLoadingTeams] = useState(false);
+
+  // Load teams on component mount
+  useEffect(() => {
+    loadTeams();
+  }, []);
+
+  async function loadTeams() {
+    try {
+      setLoadingTeams(true);
+      const response = await getTeams();
+      setTeams(response.teams);
+    } catch (error) {
+      console.error('Failed to load teams:', error);
+    } finally {
+      setLoadingTeams(false);
+    }
+  }
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
@@ -86,10 +109,12 @@ export default function AppPage() {
       );
       setIsUploading(false);
     }
-  }, []);
+  }, [selectedTeamId]); // Add selectedTeamId to dependency array so callback captures current team selection
 
   const startAnalysis = async (imagesToAnalyze: ImageData[]) => {
     console.log('📊 Starting analysis for', imagesToAnalyze.length, 'images');
+    console.log('🏀 Current selectedTeamId state:', selectedTeamId);
+    console.log('🏀 Current teams loaded:', teams.map(t => ({ id: t.id, name: t.name })));
     setIsAnalyzing(true);
     setCurrentPhase('analyze');
 
@@ -113,12 +138,42 @@ export default function AppPage() {
           try {
             const globalIndex = i + batchIndex + 1;
             console.log(`🔍 Analyzing image ${globalIndex}/${imagesToAnalyze.length}: ${image.filename}`);
+            if (selectedTeamId) {
+              console.log(`   🏀 Using team ID: ${selectedTeamId} for player identification`);
+            } else {
+              console.log(`   ⚠️ No team selected - player identification disabled`);
+            }
 
-            const analysisResult = await analyzeImage(image.id);
+            const analysisResult = await analyzeImage(image.id, selectedTeamId || undefined);
 
             console.log(`✅ Analysis complete for ${image.filename}`);
+            console.log('   📦 Full analysis result:', analysisResult);
+            console.log('   📦 Metadata:', analysisResult.metadata);
+            console.log('   📦 Jersey detection:', {
+              has_jersey_number: !!analysisResult.jersey_number,
+              jersey_number: analysisResult.jersey_number,
+              is_group_photo: analysisResult.is_group_photo,
+              player_name: analysisResult.player_name,
+              player_names: analysisResult.player_names,
+              team_id: analysisResult.team_id,
+              confidence: analysisResult.jersey_confidence
+            });
 
-            // Update image with analysis results
+            // Handle group photos vs single player photos
+            if (analysisResult.is_group_photo && analysisResult.player_names && analysisResult.player_names.length > 0) {
+              console.log(`   👥 GROUP PHOTO detected with ${analysisResult.player_names.length} players: ${analysisResult.player_names.join(', ')}`);
+            } else if (analysisResult.jersey_number) {
+              const confidencePercent = Math.round((analysisResult.jersey_confidence || 0) * 100);
+              if (analysisResult.player_name) {
+                console.log(`   👕 Detected jersey #${analysisResult.jersey_number} → ${analysisResult.player_name} (${confidencePercent}% confidence)`);
+              } else {
+                console.log(`   👕 Detected jersey #${analysisResult.jersey_number} (${confidencePercent}% confidence) - player not in roster`);
+              }
+            } else {
+              console.log(`   ℹ️ No jersey number detected in this image`);
+            }
+
+            // Update image with analysis results (including player identification)
             setImages((prevImages) =>
               prevImages.map((img) =>
                 img.id === image.id
@@ -127,6 +182,14 @@ export default function AppPage() {
                       analysis: analysisResult.analysis,
                       metadata: analysisResult.metadata,
                       analysis_status: 'completed',
+                      detected_jersey_number: analysisResult.jersey_number,
+                      player_confidence: analysisResult.jersey_confidence,
+                      player_name: analysisResult.is_group_photo
+                        ? analysisResult.player_names?.join(', ') // For group photos, join all names
+                        : analysisResult.player_name, // For single player photos
+                      is_group_photo: analysisResult.is_group_photo,
+                      player_names: analysisResult.player_names,
+                      team_id: analysisResult.team_id,
                     }
                   : img
               )
@@ -175,12 +238,40 @@ export default function AppPage() {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Team Selection for Player Identification */}
+            {teams.length > 0 && (
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600">Team:</label>
+                <select
+                  value={selectedTeamId || ''}
+                  onChange={(e) => {
+                    const newTeamId = e.target.value || null;
+                    console.log('🏀 Team dropdown changed:', {
+                      from: selectedTeamId,
+                      to: newTeamId,
+                      teamName: teams.find(t => t.id === newTeamId)?.name || 'None'
+                    });
+                    setSelectedTeamId(newTeamId);
+                  }}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">No team (no player ID)</option>
+                  {teams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {images.length > 0 && (
               <div className="text-sm text-gray-600">
                 {images.filter((img) => img.analysis_status === 'completed').length} /{' '}
                 {images.length} analyzed
               </div>
             )}
+            <UserMenu />
           </div>
         </div>
       </header>
@@ -194,6 +285,34 @@ export default function AppPage() {
               <p className="text-xl text-gray-600">
                 Upload your images and let AI analyze them in minutes
               </p>
+
+              {/* Team Selection Info */}
+              {teams.length > 0 && (
+                <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-start gap-3">
+                    <SparklesIcon className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-left">
+                      <p className="text-sm font-medium text-blue-900">
+                        {selectedTeamId ? (
+                          <>
+                            ✅ Player identification enabled for{' '}
+                            <strong>{teams.find(t => t.id === selectedTeamId)?.name}</strong>
+                          </>
+                        ) : (
+                          <>
+                            💡 Select a team in the header to enable AI player identification by jersey number
+                          </>
+                        )}
+                      </p>
+                      {selectedTeamId && (
+                        <p className="text-xs text-blue-700 mt-1">
+                          AI will detect jersey numbers and match them to your roster
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Dropzone */}
