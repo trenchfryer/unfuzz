@@ -327,13 +327,13 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
     setBatchSelectedIds(new Set());
   };
 
-  const handleStartBatchEnhancement = async () => {
+  const handleStartBatchEnhancement = async (preset: string) => {
     if (batchSelectedIds.size === 0) return;
 
     try {
       setShowBatchModal(false);
 
-      // Call backend API to start batch enhancement with auto preset (AI recommendations only)
+      // Call backend API to start batch enhancement with selected preset
       const response = await fetch('http://localhost:8015/api/v1/batch/enhancement', {
         method: 'POST',
         headers: {
@@ -341,7 +341,7 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
         },
         body: JSON.stringify({
           image_ids: Array.from(batchSelectedIds),
-          preset: 'auto', // Auto preset - uses AI recommendations without preset modifiers
+          preset: preset, // User-selected preset (auto, instagram, facebook, snapchat, etc.)
           user_id: 'test_user', // TODO: Replace with actual user ID from auth
         }),
       });
