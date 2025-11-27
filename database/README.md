@@ -61,6 +61,12 @@ Execute these SQL files in your Supabase SQL Editor in order:
    -- Copy and paste the contents of migration_001_team_player_support.sql
    ```
 
+3. **migration_002_fix_update_policy.sql** - Fixes RLS UPDATE policy for team-based images
+   ```sql
+   -- Copy and paste the contents of migration_002_fix_update_policy.sql
+   ```
+   **Important**: This migration fixes player override edits not persisting. Required for team mode functionality.
+
 ### 3. Enable Google OAuth
 
 1. In your Supabase dashboard, go to Authentication → Providers
@@ -194,6 +200,26 @@ If users can't access their data:
 2. Check RLS policies are enabled on all tables
 3. Test policies in Supabase SQL Editor
 4. Ensure user_id matches authenticated user
+
+### Player Override Edits Not Persisting
+
+**Symptoms**: Player name or jersey number edits appear to save (no error) but revert after page refresh.
+
+**Cause**: RLS UPDATE policy blocking modifications on team-based images.
+
+**Solution**: Run migration_002_fix_update_policy.sql to update the RLS policy.
+
+**Verification**:
+```sql
+-- Check if images have team_id set
+SELECT id, filename, team_id, project_id FROM images LIMIT 10;
+
+-- Verify UPDATE policy exists
+SELECT policyname FROM pg_policies
+WHERE tablename = 'images' AND cmd = 'UPDATE';
+```
+
+**Expected**: Policy should be named "Users can update images in own projects or teams"
 
 ## Development Tips
 

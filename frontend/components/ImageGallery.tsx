@@ -5,7 +5,7 @@ import { CheckCircleIcon, XCircleIcon, StarIcon } from '@heroicons/react/24/soli
 import { StarIcon as StarOutlineIcon, SparklesIcon, QueueListIcon, EyeSlashIcon, TrashIcon, CheckIcon, XMarkIcon, PlusCircleIcon } from '@heroicons/react/24/outline';
 import type { ImageData } from '@/lib/types';
 import ImageDetailModal from './ImageDetailModal';
-import EnhancementPreviewModal from './EnhancementPreviewModal';
+import ModernEnhancementModal from './ModernEnhancementModal';
 import BatchEnhancementModal from './BatchEnhancementModal';
 import BatchProgressModal from './BatchProgressModal';
 import DuplicateStack, { DuplicateGroup } from './DuplicateStack';
@@ -179,23 +179,35 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
     }
   };
 
-  const removeGroupPlayer = (image: ImageData, playerIndex: number) => {
+  const removeGroupPlayer = async (image: ImageData, playerIndex: number) => {
     if (!image.detected_jersey_numbers || !image.player_names) return;
 
-    const updatedJerseyNumbers = image.detected_jersey_numbers.filter((_, i) => i !== playerIndex);
-    const updatedPlayerNames = image.player_names.filter((_, i) => i !== playerIndex);
+    try {
+      const updatedJerseyNumbers = image.detected_jersey_numbers.filter((_, i) => i !== playerIndex);
+      const updatedPlayerNames = image.player_names.filter((_, i) => i !== playerIndex);
 
-    onImagesChange(
-      images.map((img) =>
-        img.id === image.id
-          ? {
-              ...img,
-              detected_jersey_numbers: updatedJerseyNumbers,
-              player_names: updatedPlayerNames,
-            }
-          : img
-      )
-    );
+      // Save to backend
+      await updateGroupPhotoData(
+        image.id,
+        updatedJerseyNumbers,
+        updatedPlayerNames
+      );
+
+      // Update local state
+      onImagesChange(
+        images.map((img) =>
+          img.id === image.id
+            ? {
+                ...img,
+                detected_jersey_numbers: updatedJerseyNumbers,
+                player_names: updatedPlayerNames,
+              }
+            : img
+        )
+      );
+    } catch (error) {
+      console.error('Failed to remove group player:', error);
+    }
   };
 
   const updateGroupPlayerName = async (image: ImageData, playerIndex: number, newName: string) => {
@@ -278,28 +290,40 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
     }
   };
 
-  const addGroupPlayer = (image: ImageData) => {
-    const updatedJerseyNumbers = [
-      ...(image.detected_jersey_numbers || []),
-      { number: '', confidence: 1.0, player_name: '' }
-    ];
-    const updatedPlayerNames = [...(image.player_names || []), ''];
+  const addGroupPlayer = async (image: ImageData) => {
+    try {
+      const updatedJerseyNumbers = [
+        ...(image.detected_jersey_numbers || []),
+        { number: '', confidence: 1.0, player_name: '' }
+      ];
+      const updatedPlayerNames = [...(image.player_names || []), ''];
 
-    onImagesChange(
-      images.map((img) =>
-        img.id === image.id
-          ? {
-              ...img,
-              detected_jersey_numbers: updatedJerseyNumbers,
-              player_names: updatedPlayerNames,
-              is_group_photo: true,
-            }
-          : img
-      )
-    );
+      // Save to backend
+      await updateGroupPhotoData(
+        image.id,
+        updatedJerseyNumbers,
+        updatedPlayerNames
+      );
 
-    // Start editing the newly added player's name
-    startInlineEdit(image.id, 'group_name', '', updatedPlayerNames.length - 1);
+      // Update local state
+      onImagesChange(
+        images.map((img) =>
+          img.id === image.id
+            ? {
+                ...img,
+                detected_jersey_numbers: updatedJerseyNumbers,
+                player_names: updatedPlayerNames,
+                is_group_photo: true,
+              }
+            : img
+        )
+      );
+
+      // Start editing the newly added player's name
+      startInlineEdit(image.id, 'group_name', '', updatedPlayerNames.length - 1);
+    } catch (error) {
+      console.error('Failed to add group player:', error);
+    }
   };
 
   // Batch mode handlers
@@ -1255,7 +1279,7 @@ export default function ImageGallery({ images, onImagesChange }: ImageGalleryPro
 
       {/* Enhancement Preview Modal */}
       {enhancementImage && (
-        <EnhancementPreviewModal
+        <ModernEnhancementModal
           isOpen={true}
           image={enhancementImage}
           onClose={() => setEnhancementImage(null)}

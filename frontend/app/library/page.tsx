@@ -14,8 +14,9 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
-import { getLibraryImages, incrementDownloadCount, getTeams } from '@/lib/api';
+import { getLibraryImages, incrementDownloadCount, getTeams, deleteLibraryImage } from '@/lib/api';
 import UserMenu from '@/components/UserMenu';
+import { CheckCircleIcon } from '@heroicons/react/24/solid';
 
 interface EnhancedImage {
   id: string;
@@ -50,6 +51,13 @@ export default function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [shareImageId, setShareImageId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<EnhancedImage | null>(null);
+
+  // Delete state
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [deleteSelectedIds, setDeleteSelectedIds] = useState<Set<string>>(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteAction, setDeleteAction] = useState<'selected' | 'all' | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Helper function to get full image URL (handles both local and Supabase URLs)
   const getImageUrl = (url: string): string => {
@@ -146,6 +154,81 @@ export default function LibraryPage() {
     if (shareUrl) {
       window.open(shareUrl, '_blank', 'width=600,height=400');
       setShareImageId(null);
+    }
+  };
+
+  // Delete handlers
+  const toggleDeleteMode = () => {
+    setDeleteMode(!deleteMode);
+    setDeleteSelectedIds(new Set());
+  };
+
+  const toggleImageSelection = (imageId: string) => {
+    const newSet = new Set(deleteSelectedIds);
+    if (newSet.has(imageId)) {
+      newSet.delete(imageId);
+    } else {
+      newSet.add(imageId);
+    }
+    setDeleteSelectedIds(newSet);
+  };
+
+  const handleDeleteSingle = async (imageId: string) => {
+    if (!confirm('Delete this image from your library?')) {
+      return;
+    }
+
+    try {
+      await deleteLibraryImage(imageId);
+      // Refresh library
+      await loadLibrary();
+    } catch (error) {
+      console.error('Error deleting image:', error);
+      alert('Failed to delete image. Please try again.');
+    }
+  };
+
+  const initiateDelete = (action: 'selected' | 'all') => {
+    if (action === 'selected' && deleteSelectedIds.size === 0) {
+      alert('Please select at least one image to delete');
+      return;
+    }
+    setDeleteAction(action);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteAction) return;
+
+    try {
+      setIsDeleting(true);
+      setShowDeleteConfirm(false);
+
+      let idsToDelete: string[] = [];
+
+      if (deleteAction === 'selected') {
+        idsToDelete = Array.from(deleteSelectedIds);
+      } else if (deleteAction === 'all') {
+        idsToDelete = filteredImages.map(img => img.id);
+      }
+
+      // Delete images one by one
+      for (const id of idsToDelete) {
+        await deleteLibraryImage(id);
+      }
+
+      // Clear delete state
+      setDeleteSelectedIds(new Set());
+      setDeleteMode(false);
+      setDeleteAction(null);
+
+      // Refresh library
+      await loadLibrary();
+    } catch (error) {
+      console.error('Error during batch delete:', error);
+      alert('Failed to delete some images. Please try again.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -302,23 +385,116 @@ export default function LibraryPage() {
           </div>
         ) : (
           <>
-            <div className="mb-4 text-sm text-gray-600">
-              {filteredImages.length} {filteredImages.length === 1 ? 'image' : 'images'}
+            <div className="mb-4 flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                {filteredImages.length} {filteredImages.length === 1 ? 'image' : 'images'}
+              </div>
             </div>
+
+            {/* Library Cleanup Control Panel */}
+            {filteredImages.length > 0 && (
+              <div className="mb-6 p-4 bg-red-50 border-2 border-red-200 rounded-lg">
+                <h3 className="text-sm font-semibold text-red-900 mb-3 flex items-center gap-2">
+                  <TrashIcon className="h-5 w-5" />
+                  Library Cleanup
+                </h3>
+                <div className="flex flex-wrap gap-3">
+                  {!deleteMode ? (
+                    <>
+                      <button
+                        onClick={toggleDeleteMode}
+                        className="flex items-center gap-2 px-4 py-2 bg-white border-2 border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors text-sm font-medium"
+                      >
+                        <CheckCircleIcon className="h-4 w-4" />
+                        Select Images to Delete
+                      </button>
+                      <button
+                        onClick={() => initiateDelete('all')}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                      >
+                        <TrashIcon className="h-4 w-4" />
+                        Clear Entire Library
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 px-4 py-2 bg-red-100 border-2 border-red-300 text-red-900 rounded-lg text-sm font-medium">
+                        <CheckCircleIcon className="h-5 w-5" />
+                        {deleteSelectedIds.size} selected
+                      </div>
+                      <button
+                        onClick={() => initiateDelete('selected')}
+                        disabled={deleteSelectedIds.size === 0}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                      >
+                        <TrashIcon className="h-4 w-4" />
+                        Delete Selected ({deleteSelectedIds.size})
+                      </button>
+                      <button
+                        onClick={toggleDeleteMode}
+                        className="px-4 py-2 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  )}
+                </div>
+                {deleteMode && (
+                  <p className="mt-3 text-xs text-red-700">
+                    Click on images to select them for deletion, then click &quot;Delete Selected&quot; above.
+                  </p>
+                )}
+              </div>
+            )}
 
             {viewMode === 'grid' ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {filteredImages.map(image => (
-                  <div key={image.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
+                  <div key={image.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow group">
                     <div
                       className="relative aspect-[3/2] bg-gray-100 cursor-pointer hover:opacity-95 transition-opacity"
-                      onClick={() => setPreviewImage(image)}
+                      onClick={() => {
+                        if (deleteMode) {
+                          toggleImageSelection(image.id);
+                        } else {
+                          setPreviewImage(image);
+                        }
+                      }}
                     >
                       <img
                         src={getImageUrl(image.enhanced_url)}
                         alt={image.title || 'Enhanced photo'}
                         className="w-full h-full object-cover"
                       />
+                      {/* Delete mode checkbox */}
+                      {deleteMode && (
+                        <div className="absolute top-3 left-3 z-10">
+                          <div
+                            className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${
+                              deleteSelectedIds.has(image.id)
+                                ? 'bg-red-600 border-red-600'
+                                : 'bg-white border-gray-300'
+                            }`}
+                          >
+                            {deleteSelectedIds.has(image.id) && (
+                              <CheckCircleIcon className="h-5 w-5 text-white" />
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {/* Individual delete button on hover */}
+                      {!deleteMode && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteSingle(image.id);
+                          }}
+                          className="absolute top-3 right-3 p-2 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-700 transition-all shadow-lg"
+                          title="Delete this image"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                     <div className="p-4">
                       {image.player_name_override && (
@@ -391,10 +567,34 @@ export default function LibraryPage() {
             ) : (
               <div className="space-y-4">
                 {filteredImages.map(image => (
-                  <div key={image.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-shadow">
+                  <div key={image.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-shadow group">
+                    {deleteMode && (
+                      <div
+                        className="flex-shrink-0 flex items-center cursor-pointer"
+                        onClick={() => toggleImageSelection(image.id)}
+                      >
+                        <div
+                          className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${
+                            deleteSelectedIds.has(image.id)
+                              ? 'bg-red-600 border-red-600'
+                              : 'bg-white border-gray-300'
+                          }`}
+                        >
+                          {deleteSelectedIds.has(image.id) && (
+                            <CheckCircleIcon className="h-5 w-5 text-white" />
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <div
-                      className="w-32 h-32 flex-shrink-0 bg-gray-100 rounded overflow-hidden cursor-pointer hover:opacity-95 transition-opacity"
-                      onClick={() => setPreviewImage(image)}
+                      className="w-32 h-32 flex-shrink-0 bg-gray-100 rounded overflow-hidden cursor-pointer hover:opacity-95 transition-opacity relative"
+                      onClick={() => {
+                        if (deleteMode) {
+                          toggleImageSelection(image.id);
+                        } else {
+                          setPreviewImage(image);
+                        }
+                      }}
                     >
                       <img
                         src={getImageUrl(image.enhanced_url)}
@@ -471,6 +671,15 @@ export default function LibraryPage() {
                               </div>
                             )}
                           </div>
+                          {!deleteMode && (
+                            <button
+                              onClick={() => handleDeleteSingle(image.id)}
+                              className="px-3 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors"
+                              title="Delete this image"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -528,6 +737,66 @@ export default function LibraryPage() {
                   <span>{previewImage.download_count} downloads</span>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-red-100 p-3 rounded-full">
+                <TrashIcon className="h-6 w-6 text-red-600" />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900">
+                Confirm Deletion
+              </h2>
+            </div>
+
+            <p className="text-gray-700 mb-6">
+              {deleteAction === 'selected' ? (
+                <>
+                  Are you sure you want to delete <strong>{deleteSelectedIds.size}</strong> selected {deleteSelectedIds.size === 1 ? 'image' : 'images'}?
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete <strong>all {filteredImages.length}</strong> images from your library?
+                </>
+              )}
+              <br />
+              <span className="text-red-600 font-medium">This action cannot be undone.</span>
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleteAction(null);
+                }}
+                disabled={isDeleting}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={isDeleting}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <TrashIcon className="h-4 w-4" />
+                    Delete
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

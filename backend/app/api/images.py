@@ -481,10 +481,16 @@ async def get_images(
         if hide_duplicates:
             # Only show images that aren't marked as duplicates
             query = query.or_("is_duplicate.is.null,is_duplicate.eq.false")
-        if in_library is False:
-            # Only show images not yet saved to library (NOT TRUE = NULL or FALSE)
-            # Using .neq(True) will match both NULL and FALSE values
-            query = query.filter("is_saved_to_library", "neq", True)
+
+        # NOTE: in_library parameter is NO LONGER used to filter workspace images
+        # Workspace should ALWAYS show all original images, regardless of whether
+        # they have enhanced copies in the library. The is_saved_to_library flag
+        # is just an indicator, not a filter criteria.
+        #
+        # This ensures that:
+        # 1. Saving an enhanced copy to library doesn't hide the original from workspace
+        # 2. Deleting from library doesn't affect the workspace
+        # 3. Users can create multiple enhanced versions of the same original
 
         # Order by capture time or created_at
         query = query.order("created_at", desc=True)
