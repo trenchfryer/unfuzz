@@ -2,8 +2,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
 from app.core.config import settings
-from app.api import images, projects, analysis, enhancement, teams, players, auth, library
+from app.api import images, projects, analysis, enhancement, teams, players, auth, library, batch
 import logging
 import time
 import os
@@ -32,6 +33,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Custom exception handler for validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    body = await request.body()
+    logger.error(f"❌ Validation error for {request.method} {request.url.path}")
+    logger.error(f"Request body: {body.decode('utf-8')}")
+    logger.error(f"Validation errors: {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": body.decode('utf-8')}
+    )
 
 
 # Middleware for request logging and timing
@@ -127,6 +141,11 @@ app.include_router(
 app.include_router(
     library.router,
     prefix=settings.API_V1_PREFIX
+)
+app.include_router(
+    batch.router,
+    prefix=f"{settings.API_V1_PREFIX}/batch",
+    tags=["batch"]
 )
 
 # Mount static files for serving uploads

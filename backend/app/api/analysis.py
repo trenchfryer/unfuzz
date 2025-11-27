@@ -124,6 +124,7 @@ async def analyze_single_image(
                         # Format player data for AI prompt
                         player_roster = [
                             {
+                                "id": p["id"],  # Include ID for database matching
                                 "jersey_number": p["jersey_number"],
                                 "name": f"{p['first_name']} {p['last_name']}",
                                 "position": p.get("position"),
@@ -157,8 +158,73 @@ async def analyze_single_image(
         # Compute hashes for duplicate detection
         dhash, phash = duplicate_detector.compute_hashes(image_path)
 
-        # In production, save analysis results to database
+        # Save analysis results to database
         logger.info(f"Analysis completed for {image_id}: Score {analysis_result.overall_score}")
+
+        update_data = {
+            "analysis_status": "completed",
+            "analysis_completed_at": "now()",
+            "overall_score": float(analysis_result.overall_score) if analysis_result.overall_score else None,
+            "scores": analysis_result.factor_scores.dict() if analysis_result.factor_scores else None,
+            "ai_summary": analysis_result.ai_summary,
+            "detected_issues": analysis_result.detected_issues,
+            "recommendations": analysis_result.recommendations,
+            "critical_defects": analysis_result.critical_defects,
+            "quality_tier": analysis_result.quality_tier,
+            "phash": phash,
+            "dhash": dhash,
+            "faces_detected": analysis_result.subject_analysis.faces_detected if analysis_result.subject_analysis else None,
+            "eyes_status": analysis_result.subject_analysis.eyes_status if analysis_result.subject_analysis else None,
+            "has_people": analysis_result.subject_analysis.has_people if analysis_result.subject_analysis else False,
+        }
+
+        # Serialize camera_settings and post_processing to JSON-compatible dict
+        camera_settings = getattr(analysis_result, 'camera_settings', None)
+        post_processing = getattr(analysis_result, 'post_processing', None)
+
+        if camera_settings:
+            update_data["camera_settings"] = camera_settings.dict() if hasattr(camera_settings, 'dict') else camera_settings
+        if post_processing:
+            update_data["post_processing"] = post_processing.dict() if hasattr(post_processing, 'dict') else post_processing
+
+        # Add team-specific fields if team mode was used
+        if team_mode:
+            update_data["team_mode_enabled"] = True
+            update_data["team_id"] = team_id
+            update_data["detected_jersey_number"] = getattr(analysis_result, 'jersey_number', None)
+            update_data["player_confidence"] = float(analysis_result.jersey_confidence) if getattr(analysis_result, 'jersey_confidence', None) else None
+
+            # Add group photo fields (gracefully handle missing attributes)
+            update_data["is_group_photo"] = getattr(analysis_result, 'is_group_photo', False)
+            update_data["player_names"] = getattr(analysis_result, 'player_names', None)
+            update_data["detected_jersey_numbers"] = getattr(analysis_result, 'detected_jersey_numbers', None)
+
+            # Match player from roster if single player photo (with error handling)
+            try:
+                if analysis_result.jersey_number and player_roster and not getattr(analysis_result, 'is_group_photo', False):
+                    matching_player = next(
+                        (p for p in player_roster if p.get("jersey_number") == analysis_result.jersey_number),
+                        None
+                    )
+                    if matching_player and "id" in matching_player:
+                        update_data["player_id"] = matching_player["id"]
+                        logger.info(f"✅ Matched jersey #{analysis_result.jersey_number} to player ID: {matching_player['id']}")
+                    elif analysis_result.jersey_number:
+                        logger.warning(f"⚠️ No match found for jersey #{analysis_result.jersey_number} in roster (manual edit may be needed)")
+            except Exception as player_match_error:
+                logger.error(f"⚠️ Error matching player: {player_match_error} (continuing without player match)")
+                # Continue without failing - user can manually edit later
+
+        # Save to database
+        try:
+            result = supabase_client.table("images").update(update_data).eq("id", image_id).execute()
+            if result.data:
+                logger.info(f"💾 Saved analysis results to database for image {image_id} (phash: {phash[:16]}..., dhash: {dhash[:16]}...)")
+            else:
+                logger.warning(f"⚠️ Database update returned no data for image {image_id}")
+        except Exception as db_error:
+            logger.error(f"❌ Failed to save analysis to database: {db_error}")
+            # Don't fail the request, just log the error
 
         # Format EXIF metadata for frontend display
         metadata = None
@@ -179,9 +245,29 @@ async def analyze_single_image(
         else:
             logger.info(f"📦 No metadata to return for image {image_id}")
 
+        # Safely convert analysis result to dict
+        try:
+            analysis_dict = analysis_result.dict()
+        except Exception as e:
+            logger.error(f"Failed to serialize analysis result with .dict(): {e}")
+            # Fallback to manual serialization with correct attribute names
+            analysis_dict = {
+                "overall_score": getattr(analysis_result, 'overall_score', 0),
+                "quality_tier": getattr(analysis_result, 'quality_tier', 'unknown'),
+                "ai_summary": getattr(analysis_result, 'ai_summary', None),
+                "factor_scores": getattr(analysis_result, 'factor_scores', {}),
+                "detected_issues": getattr(analysis_result, 'detected_issues', []),
+                "critical_defects": getattr(analysis_result, 'critical_defects', []),
+                "is_reject": getattr(analysis_result, 'is_reject', False),
+                "recommendations": getattr(analysis_result, 'recommendations', []),
+                "subject_analysis": getattr(analysis_result, 'subject_analysis', {}),
+                "camera_settings": getattr(analysis_result, 'camera_settings', None),
+                "post_processing": getattr(analysis_result, 'post_processing', None),
+            }
+
         response = {
             "image_id": image_id,
-            "analysis": analysis_result.dict(),
+            "analysis": analysis_dict,
             "metadata": metadata,
             "dhash": dhash,
             "phash": phash,
@@ -198,6 +284,12 @@ async def analyze_single_image(
             response["is_group_photo"] = getattr(analysis_result, 'is_group_photo', False)
             response["detected_jersey_numbers"] = getattr(analysis_result, 'detected_jersey_numbers', [])
             response["player_names"] = getattr(analysis_result, 'player_names', [])
+
+            # Debug logging for group photos
+            if response["is_group_photo"]:
+                logger.info(f"🔍 GROUP PHOTO response data:")
+                logger.info(f"   - detected_jersey_numbers: {response['detected_jersey_numbers']}")
+                logger.info(f"   - player_names: {response['player_names']}")
 
             # Look up player name from roster (for single player photos)
             if analysis_result.jersey_number and player_roster and not response["is_group_photo"]:
@@ -265,28 +357,95 @@ async def analyze_batch_images(
 
 
 @router.post("/detect-duplicates")
-async def detect_duplicates(project_id: str):
+async def detect_duplicates(
+    project_id: Optional[str] = Query(None, description="Optional project ID to limit detection"),
+    user_id: Optional[str] = Query(None, description="Optional user ID to detect duplicates for all user images")
+):
     """
-    Detect duplicate and similar images in a project.
+    Detect duplicate and similar images using SQL-based exact hash matching.
 
-    Groups similar images and identifies burst sequences.
+    Groups images with identical perceptual hashes (exact duplicates).
     """
     try:
-        # In production, fetch all images for project from database
-        # For now, return mock response
+        # Use SQL query to find groups of images with identical hashes
+        # This is much faster and more reliable than Python-based comparison
 
-        # Example of how to use duplicate detector:
-        # image_data = [
-        #     {"id": "1", "dhash": "...", "phash": "...", "capture_time": ...},
-        #     ...
-        # ]
-        # duplicate_groups = duplicate_detector.find_duplicate_groups(image_data)
-        # burst_sequences = duplicate_detector.find_burst_sequences(image_data)
+        logger.info("Detecting duplicates using SQL hash matching...")
+
+        # Fetch all images with their hashes
+        query = supabase_client.table("images").select("id, filename, phash, dhash, overall_score, capture_time")
+        query = query.not_.is_("phash", "null").not_.is_("dhash", "null")
+
+        if project_id:
+            query = query.eq("project_id", project_id)
+
+        result = query.execute()
+        images = result.data
+
+        if not images:
+            return {
+                "project_id": project_id,
+                "duplicate_groups": [],
+                "total_images": 0,
+                "total_duplicates": 0,
+                "message": "No images with hashes found"
+            }
+
+        logger.info(f"Found {len(images)} images with hashes")
+
+        # Group images by their hash combination
+        hash_groups = {}
+        for img in images:
+            hash_key = f"{img['phash']}|{img['dhash']}"
+            if hash_key not in hash_groups:
+                hash_groups[hash_key] = []
+            hash_groups[hash_key].append(img)
+
+        # Filter to only groups with more than 1 image (duplicates)
+        duplicate_groups = []
+        total_duplicates = 0
+
+        import uuid
+        for hash_key, group_images in hash_groups.items():
+            if len(group_images) <= 1:
+                continue  # Skip non-duplicates
+
+            # Sort by overall_score (highest first), then by filename
+            sorted_images = sorted(
+                group_images,
+                key=lambda x: (-(x.get('overall_score') or 0), x['filename'])
+            )
+
+            # Best image is the one with highest score
+            best_image = sorted_images[0]
+            group_id = str(uuid.uuid4())
+
+            # Update database for all images in group
+            for img in group_images:
+                is_best = (img['id'] == best_image['id'])
+                supabase_client.table("images").update({
+                    "duplicate_group_id": group_id,
+                    "is_duplicate": not is_best,
+                }).eq("id", img['id']).execute()
+
+            duplicate_groups.append({
+                "group_id": group_id,
+                "image_ids": [img['id'] for img in group_images],
+                "best_image_id": best_image['id'],
+                "count": len(group_images),
+                "filenames": [img['filename'] for img in group_images],
+            })
+
+            total_duplicates += len(group_images)
+
+        logger.info(f"✅ Found {len(duplicate_groups)} duplicate groups with {total_duplicates} total images")
 
         return {
             "project_id": project_id,
-            "duplicate_groups": [],
-            "burst_sequences": [],
+            "duplicate_groups": duplicate_groups,
+            "total_images": len(images),
+            "total_duplicates": total_duplicates,
+            "total_groups": len(duplicate_groups),
             "message": "Duplicate detection completed"
         }
 

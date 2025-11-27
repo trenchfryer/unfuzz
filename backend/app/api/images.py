@@ -23,6 +23,19 @@ class UpdatePlayerOverrideRequest(BaseModel):
     player_name_override: Optional[str] = None
     jersey_number_override: Optional[str] = None
 
+
+class JerseyNumberDetection(BaseModel):
+    """Model for a detected jersey number in a group photo."""
+    number: str
+    confidence: float
+    player_name: Optional[str] = None
+
+
+class UpdateGroupPhotoDataRequest(BaseModel):
+    detected_jersey_numbers: Optional[List[JerseyNumberDetection]] = None
+    player_names: Optional[List[str]] = None
+
+
 router = APIRouter()
 
 # Ensure upload directory exists
@@ -317,21 +330,13 @@ async def update_player_override(
     try:
         from app.core.supabase import supabase_client
 
-        user_id = current_user["id"]
-
-        # Verify user owns the image
-        image_result = supabase_client.table("images").select("user_id").eq("id", image_id).execute()
+        # Verify image exists
+        image_result = supabase_client.table("images").select("id").eq("id", image_id).execute()
 
         if not image_result.data:
             raise HTTPException(
                 status_code=404,
                 detail="Image not found"
-            )
-
-        if image_result.data[0]["user_id"] != user_id:
-            raise HTTPException(
-                status_code=403,
-                detail="You don't have access to this image"
             )
 
         # Update the override fields
@@ -370,6 +375,221 @@ async def update_player_override(
         )
 
 
+@router.patch("/{image_id}/group-photo-data")
+async def update_group_photo_data(
+    image_id: str,
+    request: UpdateGroupPhotoDataRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Update group photo player data (detected jersey numbers and player names arrays).
+
+    For group photos with multiple players detected.
+    """
+    try:
+        from app.core.supabase import supabase_client
+
+        logger.info(f"Updating group photo data for image {image_id}")
+        logger.info(f"Request data: detected_jersey_numbers={request.detected_jersey_numbers}, player_names={request.player_names}")
+
+        # Verify image exists
+        image_result = supabase_client.table("images").select("id").eq("id", image_id).execute()
+
+        if not image_result.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Image not found"
+            )
+
+        # Update the group photo arrays
+        # Convert Pydantic models to dicts for database
+        update_data = {}
+        if request.detected_jersey_numbers is not None:
+            update_data["detected_jersey_numbers"] = [
+                jersey.model_dump() for jersey in request.detected_jersey_numbers
+            ]
+        if request.player_names is not None:
+            update_data["player_names"] = request.player_names
+
+        if not update_data:
+            raise HTTPException(
+                status_code=400,
+                detail="No fields to update"
+            )
+
+        logger.info(f"Updating database with: {update_data}")
+
+        # Update in database
+        result = supabase_client.table("images").update(update_data).eq("id", image_id).execute()
+
+        if not result.data:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update group photo data"
+            )
+
+        logger.info(f"✅ Updated group photo data for image {image_id}")
+
+        return result.data[0]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating group photo data for image {image_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update group photo data: {str(e)}"
+        )
+
+
+@router.get("/")
+async def get_images(
+    team_id: Optional[str] = None,
+    player_id: Optional[str] = None,
+    quality_tier: Optional[str] = None,
+    hide_duplicates: bool = False,
+    in_library: Optional[bool] = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    """
+    Get images with optional filtering.
+
+    Supports filtering by:
+    - team_id: Filter by team
+    - player_id: Filter by player
+    - quality_tier: excellent, good, acceptable, poor
+    - hide_duplicates: If true, only show best from each duplicate group
+    - in_library: If false, exclude images saved to library (default: show all)
+    - limit/offset: Pagination
+
+    Returns images grouped by duplicate_group_id if duplicates exist.
+    """
+    try:
+        from app.core.supabase import supabase_client
+
+        # Build query
+        query = supabase_client.table("images").select("*")
+
+        # Apply filters
+        if team_id:
+            query = query.eq("team_id", team_id)
+        if player_id:
+            query = query.eq("player_id", player_id)
+        if quality_tier:
+            query = query.eq("quality_tier", quality_tier)
+        if hide_duplicates:
+            # Only show images that aren't marked as duplicates
+            query = query.or_("is_duplicate.is.null,is_duplicate.eq.false")
+        if in_library is False:
+            # Only show images not yet saved to library (NOT TRUE = NULL or FALSE)
+            # Using .neq(True) will match both NULL and FALSE values
+            query = query.filter("is_saved_to_library", "neq", True)
+
+        # Order by capture time or created_at
+        query = query.order("created_at", desc=True)
+
+        # Apply pagination
+        query = query.range(offset, offset + limit - 1)
+
+        result = query.execute()
+        images = result.data
+
+        # Enrich images with player names by joining with players table
+        player_ids = [img.get('player_id') for img in images if img.get('player_id')]
+        player_map = {}
+
+        if player_ids:
+            try:
+                # Fetch player names in batch
+                players_result = supabase_client.table("players").select("id,first_name,last_name").in_("id", player_ids).execute()
+                player_map = {
+                    p['id']: f"{p['first_name']} {p['last_name']}"
+                    for p in players_result.data
+                }
+            except Exception as e:
+                logger.warning(f"Could not fetch player names: {e}")
+
+        # Add player_name to each image
+        for img in images:
+            player_id = img.get('player_id')
+            if player_id and player_id in player_map:
+                img['player_name'] = player_map[player_id]
+
+        # Group images by duplicate_group_id
+        grouped_images = []
+        duplicate_groups = {}
+
+        for img in images:
+            group_id = img.get('duplicate_group_id')
+
+            if group_id:
+                # This image is part of a duplicate group
+                if group_id not in duplicate_groups:
+                    duplicate_groups[group_id] = {
+                        'group_id': group_id,
+                        'images': [],
+                        'best_image_id': None,
+                        'count': 0
+                    }
+
+                duplicate_groups[group_id]['images'].append(img)
+                duplicate_groups[group_id]['count'] += 1
+
+                # Track which is the best (is_duplicate = false)
+                if not img.get('is_duplicate'):
+                    duplicate_groups[group_id]['best_image_id'] = img['id']
+            else:
+                # Standalone image, not a duplicate
+                grouped_images.append({
+                    'image': img,
+                    'is_group': False,
+                    'group': None
+                })
+
+        # Add duplicate groups to result
+        for group_id, group_data in duplicate_groups.items():
+            # Sort images in group by score (best first)
+            group_data['images'].sort(
+                key=lambda x: -(x.get('overall_score') or 0)
+            )
+
+            best_image = next(
+                (img for img in group_data['images'] if img['id'] == group_data['best_image_id']),
+                group_data['images'][0]
+            )
+
+            grouped_images.append({
+                'image': best_image,  # Show best image
+                'is_group': True,
+                'group': {
+                    'id': group_id,
+                    'count': group_data['count'],
+                    'images': group_data['images'],
+                    'best_image_id': group_data['best_image_id']
+                }
+            })
+
+        logger.info(f"Fetched {len(images)} images, grouped into {len(grouped_images)} items")
+
+        return {
+            'images': grouped_images,
+            'total': len(images),
+            'offset': offset,
+            'limit': limit,
+            'filters': {
+                'team_id': team_id,
+                'player_id': player_id,
+                'quality_tier': quality_tier,
+                'hide_duplicates': hide_duplicates
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching images: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/{image_id}")
 async def delete_image(image_id: str):
     """
@@ -377,8 +597,48 @@ async def delete_image(image_id: str):
 
     Removes from storage and database.
     """
-    # TODO: Implement deletion
-    return {
-        "id": image_id,
-        "message": "Image deleted successfully"
-    }
+    try:
+        from app.core.supabase import supabase_client
+
+        # Get image info first
+        result = supabase_client.table("images").select("original_url,thumbnail_url").eq("id", image_id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        image_data = result.data[0]
+
+        # Delete files from storage
+        try:
+            # Delete original image
+            if image_data.get('original_url'):
+                file_path = os.path.join(settings.UPLOAD_FOLDER, os.path.basename(image_data['original_url']))
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    logger.info(f"Deleted file: {file_path}")
+
+            # Delete thumbnail
+            if image_data.get('thumbnail_url'):
+                thumb_path = os.path.join(settings.UPLOAD_FOLDER, os.path.basename(image_data['thumbnail_url']))
+                if os.path.exists(thumb_path):
+                    os.remove(thumb_path)
+                    logger.info(f"Deleted thumbnail: {thumb_path}")
+        except Exception as e:
+            logger.warning(f"Error deleting files for image {image_id}: {e}")
+            # Continue with database deletion even if file deletion fails
+
+        # Delete from database
+        supabase_client.table("images").delete().eq("id", image_id).execute()
+
+        logger.info(f"Successfully deleted image {image_id}")
+
+        return {
+            "id": image_id,
+            "message": "Image deleted successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting image {image_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
